@@ -25,6 +25,7 @@ import com.droidspaces.app.ui.component.PullToRefreshWrapper
 import com.droidspaces.app.ui.component.RunningContainerCard
 import com.droidspaces.app.ui.viewmodel.ContainerViewModel
 import com.droidspaces.app.ui.viewmodel.SystemStatsViewModel
+import com.droidspaces.app.util.AnlandUtils
 import androidx.compose.ui.platform.LocalContext
 import com.droidspaces.app.R
 
@@ -100,6 +101,8 @@ fun ControlPanelScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         runningContainers.forEach { container ->
+                            // Socket path comes with the heartbeat; presence gates the button
+                            val anlandSock = containerUsageMap[container.name]?.anlandSocket
                             RunningContainerCard(
                                 container = container,
                                 onEnter = {
@@ -107,6 +110,10 @@ fun ControlPanelScreen(
                                 },
                                 onTerminalClick = {
                                     onNavigateToTerminal(container.name)
+                                },
+                                anlandEnabled = container.enableAnland && anlandSock != null,
+                                onLaunchAnland = {
+                                    anlandSock?.let { AnlandUtils.launchWindow(context, container.name, it) }
                                 },
                                 osInfo = containerUsageMap[container.name],
                             )

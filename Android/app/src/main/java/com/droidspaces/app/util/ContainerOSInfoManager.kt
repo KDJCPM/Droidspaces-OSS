@@ -43,7 +43,8 @@ object ContainerOSInfoManager {
         val ramUsageMb: Long? = null,
         val ramPercent: Double? = null,
         /** The memory limit in force. Null when unlimited, and then [ramPercent] is of the host's RAM. */
-        val ramLimitMb: Long? = null
+        val ramLimitMb: Long? = null,
+        val anlandSocket: String? = null
     ) {
         /** "115/512 MB (22%)" under a limit, "115 MB (1.5%)" of the host without one. */
         fun ramLabel(context: Context): String? {
@@ -135,6 +136,7 @@ object ContainerOSInfoManager {
             id = null,
             hostname = obj.optString("hostname").ifEmpty { null },
             ipAddress = obj.optString("ip").ifEmpty { null },
+            anlandSocket = obj.optString("anland_sock").ifEmpty { null },
             uptime = obj.optString("uptime").ifEmpty { null },
             cpuUsage = (if (cpuLimitPermill > 0) cpuPermill * 100.0 / cpuLimitPermill else cpuPermill / 10.0).coerceIn(0.0, 100.0),
             ramUsageMb = if (ramTotalKb > 0) ramUsedKb / 1024 else null,
