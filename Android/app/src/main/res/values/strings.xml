@@ -416,6 +416,8 @@
     <string name="restart_service">Restart service</string>
     <string name="reload_service">Reload service</string>
     <string name="mask_service">Mask service</string>
+    <string name="inspect_unit">Inspect unit</string>
+    <string name="edit_override">Edit override</string>
     <string name="action_successful">%1$s %2$s successful</string>
     <string name="failed_to_action">Failed to %1$s %2$s</string>
     <string name="error_unknown">Error: %1$s</string>
