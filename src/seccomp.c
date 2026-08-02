@@ -273,7 +273,7 @@ void ds_ksu_neutralize_root_escape(void) {
   /* Mark this thread so escape_with_root_profile() aborts for it
    * (KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT, perm: only_root). */
   if (ioctl(fd, DS_KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT, 0) == 0)
-    ds_log("[KSU] escape_with_root disabled for pid %d", (int)getpid());
+    ds_log("[SEC] escape_with_root disabled for pid %d", (int)getpid());
   /* fd is O_CLOEXEC, but drop it explicitly before any exec so it can
    * never be reused by a descendant for GRANT_ROOT. */
   close(fd);
