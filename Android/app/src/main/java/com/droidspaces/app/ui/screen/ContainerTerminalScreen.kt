@@ -266,16 +266,15 @@ fun ContainerTerminalScreen(
                     ) {
                         tabs.forEach { tab ->
                             val isSelected = tab.id == activeTabId
-                            Tab(
-                                selected = isSelected,
-                                onClick = {},
+                            Box(
                                 modifier = Modifier
                                     .height(48.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = { activeTabId = tab.id },
                                         onLongClick = { tabToClose = tab }
-                                    )
+                                    ),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = tab.label,
