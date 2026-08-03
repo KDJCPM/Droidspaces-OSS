@@ -40,7 +40,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
 import com.droidspaces.app.R
-import kotlin.math.abs
+import androidx.compose.ui.graphics.lerp as colorLerp
+import androidx.compose.ui.unit.lerp as dpLerp
 
 enum class TabItem(val titleResId: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Home(R.string.home_title, Icons.Default.Home),
@@ -576,6 +577,7 @@ private fun ControlPanelTabContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MainBottomBar(
     pagerState: androidx.compose.foundation.pager.PagerState,
@@ -623,14 +625,14 @@ private fun MainBottomBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     tabs.forEachIndexed { index, tab ->
-                        val distance = abs(pagerPosition - index)
+                        val distance = if (pagerPosition > index) pagerPosition - index else index.toFloat() - pagerPosition
                         val selectionFraction = (1.0f - distance).coerceIn(0.0f, 1.0f)
                         
                         val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         val selectedColor = MaterialTheme.colorScheme.primary
-                        val contentColor = androidx.compose.ui.graphics.lerp(unselectedColor, selectedColor, selectionFraction)
+                        val contentColor = colorLerp(unselectedColor, selectedColor, selectionFraction)
                         
-                        val iconSize = androidx.compose.ui.unit.lerp(22.dp, 24.dp, selectionFraction)
+                        val iconSize = dpLerp(22.dp, 24.dp, selectionFraction)
                         val fontSize = (10f + 1f * selectionFraction).sp
                         val fontWeight = FontWeight((400f + 300f * selectionFraction).toInt())
 
