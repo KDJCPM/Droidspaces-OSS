@@ -10,6 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +64,7 @@ private data class TerminalTab(
     val label: String,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ContainerTerminalScreen(
     containerName: String,
@@ -96,6 +103,7 @@ fun ContainerTerminalScreen(
     val tabs = remember { mutableStateListOf<TerminalTab>() }
     var activeTabId by remember { mutableStateOf("") }
     var showUserPicker by remember { mutableStateOf(false) }
+    var tabToClose by remember { mutableStateOf<TerminalTab?>(null) }
 
     // Resolve hostname reactively; picker is shown only after binder+hostname are both ready
     var hostname by remember(containerName) {
@@ -190,10 +198,23 @@ fun ContainerTerminalScreen(
         )
     }
 
+    if (tabToClose != null) {
+        CloseSessionDialog(
+            onConfirm = {
+                val tab = tabToClose!!
+                tabToClose = null
+                closeTab(tab)
+            },
+            onDismiss = {
+                tabToClose = null
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
+                CenterAlignedTopAppBar(
                     title = {
                         Text(
                             containerName,
@@ -213,58 +234,59 @@ fun ContainerTerminalScreen(
                             Icon(Icons.Default.Add, contentDescription = "New tab")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                     )
                 )
 
                 if (tabs.isNotEmpty()) {
+                    val selectedTabIndex = tabs.indexOfFirst { it.id == activeTabId }.coerceAtLeast(0)
                     ScrollableTabRow(
-                        selectedTabIndex = tabs.indexOfFirst { it.id == activeTabId }.coerceAtLeast(0),
+                        selectedTabIndex = selectedTabIndex,
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         contentColor = MaterialTheme.colorScheme.primary,
                         edgePadding = 0.dp,
                         divider = {},
-                        modifier = Modifier.fillMaxWidth()
+                        indicator = { tabPositions ->
+                            if (selectedTabIndex < tabPositions.size) {
+                                val position = tabPositions[selectedTabIndex]
+                                Box(
+                                    Modifier
+                                        .tabIndicatorOffset(position)
+                                        .fillMaxHeight()
+                                        .padding(horizontal = 4.dp, vertical = 6.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         tabs.forEach { tab ->
                             val isSelected = tab.id == activeTabId
                             Tab(
                                 selected = isSelected,
-                                onClick = { activeTabId = tab.id },
-                                modifier = Modifier.height(40.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(horizontal = 8.dp)
-                                ) {
-                                    Text(
-                                        tab.label,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.widthIn(max = 120.dp)
+                                onClick = {},
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .combinedClickable(
+                                        onClick = { activeTabId = tab.id },
+                                        onLongClick = { tabToClose = tab }
                                     )
-                                    Box(
-                                        Modifier.size(16.dp).clip(CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        IconButton(
-                                            onClick = { closeTab(tab) },
-                                            modifier = Modifier.size(16.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Close tab",
-                                                modifier = Modifier.size(12.dp),
-                                                tint = if (isSelected) MaterialTheme.colorScheme.primary
-                                                       else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
                             }
                         }
                     }
@@ -284,13 +306,23 @@ fun ContainerTerminalScreen(
                     LoadingIndicator(size = LoadingSize.Medium)
                 }
             } else {
-                tabs.forEach { tab ->
+                val selectedTabIndex = tabs.indexOfFirst { it.id == activeTabId }.coerceAtLeast(0)
+                var previousActiveIndex by remember { mutableIntStateOf(0) }
+                LaunchedEffect(selectedTabIndex) {
+                    previousActiveIndex = selectedTabIndex
+                }
+                val isMovingRight = selectedTabIndex > previousActiveIndex
+                val hasMoved = selectedTabIndex != previousActiveIndex
+
+                tabs.forEachIndexed { index, tab ->
                     key(tab.id) {
                         TerminalTabView(
                             tab = tab,
                             binder = binder!!,
                             containerName = containerName,
                             isVisible = tab.id == activeTabId,
+                            isMovingRight = isMovingRight,
+                            hasMoved = hasMoved,
                             activity = activity,
                             onSessionFinished = { closeTab(tab) },
                             modifier = Modifier.fillMaxSize()
@@ -308,6 +340,8 @@ private fun TerminalTabView(
     binder: TerminalSessionService.SessionBinder,
     containerName: String,
     isVisible: Boolean,
+    isMovingRight: Boolean,
+    hasMoved: Boolean,
     activity: Activity?,
     onSessionFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -320,10 +354,33 @@ private fun TerminalTabView(
     val context = androidx.compose.ui.platform.LocalContext.current
     val terminalTypeface = remember { ResourcesCompat.getFont(context, R.font.jetbrains_mono) }
 
+    val slideOffsetFraction = 0.08f
+    val enterTransition = if (hasMoved) {
+        slideInHorizontally(
+            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+        ) { width ->
+            if (isMovingRight) (width * slideOffsetFraction).toInt()
+            else -(width * slideOffsetFraction).toInt()
+        } + fadeIn(animationSpec = tween(250))
+    } else {
+        fadeIn(animationSpec = AnimationUtils.fastSpec())
+    }
+
+    val exitTransition = if (hasMoved) {
+        slideOutHorizontally(
+            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+        ) { width ->
+            if (isMovingRight) -(width * slideOffsetFraction).toInt()
+            else (width * slideOffsetFraction).toInt()
+        } + fadeOut(animationSpec = tween(250))
+    } else {
+        fadeOut(animationSpec = AnimationUtils.fastSpec())
+    }
+
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn(animationSpec = AnimationUtils.fastSpec()),
-        exit = fadeOut(animationSpec = AnimationUtils.fastSpec()),
+        enter = enterTransition,
+        exit = exitTransition,
         modifier = modifier
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -534,6 +591,92 @@ private fun UserPickerDialog(
                             text = context.getString(R.string.open),
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloseSessionDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val dialogShape = RoundedCornerShape(28.dp)
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .wrapContentHeight(),
+            shape = dialogShape,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Close this session?",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // NO button: styled like the restart button (secondary container)
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = context.getString(android.R.string.no),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+
+                    // YES button: styled like the stop button (error container)
+                    Surface(
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = context.getString(android.R.string.yes),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
