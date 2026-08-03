@@ -634,7 +634,12 @@ private fun MainBottomBar(
                         
                         val iconSize = dpLerp(22.dp, 24.dp, selectionFraction)
                         val fontSize = (10f + 1f * selectionFraction).sp
-                        val fontWeight = FontWeight((400f + 300f * selectionFraction).toInt())
+                        val isSelected = pagerState.currentPage == index
+                        val fontWeight = if (isSelected) {
+                            FontWeight.Bold
+                        } else {
+                            FontWeight((400f + 300f * selectionFraction).toInt().coerceIn(400, 700))
+                        }
 
                         Surface(
                             onClick = { onTabSelected(tab) },
@@ -657,11 +662,10 @@ private fun MainBottomBar(
                                 )
                                 Text(
                                     text = context.getString(tab.titleResId),
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = fontSize,
-                                        fontWeight = fontWeight
-                                    ),
-                                    color = contentColor
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = contentColor,
+                                    fontSize = fontSize,
+                                    fontWeight = fontWeight
                                 )
                             }
                         }
