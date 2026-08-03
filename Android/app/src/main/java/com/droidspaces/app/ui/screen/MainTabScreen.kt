@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
 import com.droidspaces.app.R
+import kotlin.math.abs
 
 enum class TabItem(val titleResId: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Home(R.string.home_title, Icons.Default.Home),
@@ -355,7 +356,8 @@ fun MainTabScreen(
                     .onSizeChanged { bottomBarHeight = with(density) { it.height.toDp() } }
             ) {
                 MainBottomBar(
-                    selectedTab = selectedTab,
+                    pagerState = pagerState,
+                    tabs = tabs,
                     onTabSelected = { tab ->
                         scope.launch {
                             pagerState.scrollToPage(tabs.indexOf(tab))
@@ -576,12 +578,12 @@ private fun ControlPanelTabContent(
 
 @Composable
 private fun MainBottomBar(
-    selectedTab: TabItem,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    tabs: Array<TabItem>,
     onTabSelected: (TabItem) -> Unit
 ) {
     val context = LocalContext.current
-    val tabs = TabItem.entries
-    val selectedIndex = tabs.indexOf(selectedTab)
+    val pagerPosition = pagerState.currentPage + pagerState.currentPageOffsetFraction
     
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -603,14 +605,7 @@ private fun MainBottomBar(
                 // Background Indicator
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val tabWidth = maxWidth / tabs.size
-                    val offset by androidx.compose.animation.core.animateDpAsState(
-                        targetValue = tabWidth * selectedIndex,
-                        animationSpec = androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
-                        ),
-                        label = "IndicatorOffset"
-                    )
+                    val offset = tabWidth * pagerPosition
 
                     Surface(
                         modifier = Modifier
@@ -627,12 +622,17 @@ private fun MainBottomBar(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tabs.forEach { tab ->
-                        val isSelected = selectedTab == tab
-                        val contentColor by androidx.compose.animation.animateColorAsState(
-                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            label = "IconColor"
-                        )
+                    tabs.forEachIndexed { index, tab ->
+                        val distance = abs(pagerPosition - index)
+                        val selectionFraction = (1.0f - distance).coerceIn(0.0f, 1.0f)
+                        
+                        val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        val selectedColor = MaterialTheme.colorScheme.primary
+                        val contentColor = androidx.compose.ui.graphics.lerp(unselectedColor, selectedColor, selectionFraction)
+                        
+                        val iconSize = androidx.compose.ui.unit.lerp(22.dp, 24.dp, selectionFraction)
+                        val fontSize = (10f + 1f * selectionFraction).sp
+                        val fontWeight = FontWeight((400f + 300f * selectionFraction).toInt())
 
                         Surface(
                             onClick = { onTabSelected(tab) },
@@ -650,15 +650,16 @@ private fun MainBottomBar(
                                 Icon(
                                     imageVector = tab.icon,
                                     contentDescription = null,
-                                    modifier = Modifier.size(if (isSelected) 24.dp else 22.dp),
+                                    modifier = Modifier.size(iconSize),
                                     tint = contentColor
                                 )
                                 Text(
                                     text = context.getString(tab.titleResId),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = contentColor,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = if (isSelected) 11.sp else 10.sp
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = fontSize,
+                                        fontWeight = fontWeight
+                                    ),
+                                    color = contentColor
                                 )
                             }
                         }
