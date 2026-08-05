@@ -621,8 +621,8 @@ private fun StopContainerConfirmationDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 DialogFooterRow(
-                    dismissLabel = context.getString(R.string.no),
-                    confirmLabel = context.getString(R.string.yes),
+                    dismissLabel = context.getString(android.R.string.no),
+                    confirmLabel = context.getString(android.R.string.yes),
                     onDismiss = onDismiss,
                     onConfirm = onConfirm,
                     confirmEnabled = true,
