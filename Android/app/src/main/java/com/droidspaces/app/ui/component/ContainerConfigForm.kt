@@ -141,8 +141,7 @@ fun ContainerConfigForm(
         ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth(0.92f)
                     .imePadding(),
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer,
