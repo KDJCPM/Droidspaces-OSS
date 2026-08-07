@@ -448,8 +448,8 @@ private fun SparseSizeDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
                 .imePadding(),
             shape = dialogShape,
             color = MaterialTheme.colorScheme.surfaceContainer,
@@ -507,8 +507,8 @@ private fun UninstallConfirmationDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight(),
             shape = dialogShape,
             color = MaterialTheme.colorScheme.surfaceContainer,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
@@ -591,8 +591,8 @@ private fun StopContainerConfirmationDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight(),
             shape = dialogShape,
             color = MaterialTheme.colorScheme.surfaceContainer,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),

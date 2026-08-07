@@ -624,8 +624,7 @@ private fun CloseSessionDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
+                .fillMaxWidth(0.92f)
                 .wrapContentHeight(),
             shape = dialogShape,
             color = MaterialTheme.colorScheme.surfaceContainer,
