@@ -20,6 +20,7 @@
     <locale android:name="ro" />
     <locale android:name="ru" />
     <locale android:name="si" />
+    <locale android:name="ko" />
     <locale android:name="ta" />
     <locale android:name="tr" />
     <locale android:name="zh-CN" />
