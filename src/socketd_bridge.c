@@ -740,11 +740,31 @@ static int socketd_validate_start_config(struct ds_config *cfg) {
   if (check_requirements_hw(cfg->hw_access) < 0)
     return -1;
 
-  if ((cfg->net_mode == DS_NET_NAT || cfg->net_mode == DS_NET_NONE) &&
+  if ((cfg->net_mode == DS_NET_NAT || cfg->net_mode == DS_NET_NONE ||
+       cfg->net_mode == DS_NET_GATEWAY || cfg->net_mode == DS_NET_IPVLAN ||
+       cfg->net_mode == DS_NET_MACVLAN) &&
       !check_ns(CLONE_NEWNET, "net")) {
     ds_error("Container '%s' requires network namespaces for its net mode",
              cfg->container_name);
     return -1;
+  }
+
+  if (cfg->net_mode == DS_NET_IPVLAN || cfg->net_mode == DS_NET_MACVLAN) {
+    char reason[256];
+    const char *kind =
+        cfg->net_mode == DS_NET_IPVLAN ? "ipvlan" : "macvlan";
+    if (ds_net_resolve_parent(cfg, reason, sizeof(reason)) < 0) {
+      ds_error("Container '%s' cannot auto-detect a %s parent: %s",
+               cfg->container_name, kind, reason);
+      return -1;
+    }
+    ds_log("[NET] %s", reason);
+    if (ds_nl_probe_parent_capability(cfg->net_parent, kind, reason,
+                                      sizeof(reason)) < 0) {
+      ds_error("Container '%s' cannot use %s: %s", cfg->container_name, kind,
+               reason);
+      return -1;
+    }
   }
 
   return 0;

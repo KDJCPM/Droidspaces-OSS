@@ -9,6 +9,67 @@
 #include <linux/capability.h>
 #include <sys/prctl.h>
 
+/* Per-boot network-service policy.  /run overrides stale rootfs drop-ins, so
+ * old images immediately learn about ipvlan/macvlan without being re-extracted.
+ * Host/none and direct-L2 static must keep guest managers stopped; NAT,
+ * gateway, and direct-L2 DHCP let the guest own eth0 configuration. */
+static void ds_write_guest_network_policy(const struct ds_config *cfg) {
+  if (!cfg)
+    return;
+
+  int direct_dhcp =
+      (cfg->net_mode == DS_NET_IPVLAN || cfg->net_mode == DS_NET_MACVLAN) &&
+      cfg->net_ipam == DS_NET_IPAM_DHCP;
+  int allow_guest = cfg->net_mode == DS_NET_NAT ||
+                    cfg->net_mode == DS_NET_GATEWAY || direct_dhcp;
+
+  mkdir("run/systemd", 0755);
+  mkdir("run/systemd/system", 0755);
+  const char *units[] = {"NetworkManager.service", "dhcpcd.service",
+                         "systemd-networkd.service",
+                         "systemd-resolved.service", NULL};
+  const char *allow = "[Service]\nExecCondition=\n";
+  const char *block = "[Service]\nExecCondition=\nExecCondition=/bin/false\n";
+  for (size_t i = 0; units[i]; i++) {
+    char dir[PATH_MAX];
+    char file[PATH_MAX];
+    snprintf(dir, sizeof(dir), "run/systemd/system/%s.d", units[i]);
+    if (mkdir(dir, 0755) < 0 && errno != EEXIST) {
+      ds_warn("[NET] Cannot create systemd network policy directory %s: %s",
+              dir, strerror(errno));
+      continue;
+    }
+    snprintf(file, sizeof(file), "%s/zz-droidspaces-netmode.conf", dir);
+    if (write_file(file, allow_guest ? allow : block) < 0)
+      ds_warn("[NET] Cannot write systemd network policy %s", file);
+  }
+
+  if (direct_dhcp) {
+    mkdir("run/systemd/network", 0755);
+    const char *network =
+        "[Match]\n"
+        "Name=eth0\n\n"
+        "[Network]\n"
+        "DHCP=ipv4\n"
+        "IPv6AcceptRA=yes\n"
+        "LinkLocalAddressing=ipv6\n\n"
+        "[DHCPv4]\n"
+        "ClientIdentifier=mac\n"
+        "UseDNS=yes\n"
+        "UseDomains=yes\n"
+        "RouteMetric=100\n\n"
+        "[IPv6AcceptRA]\n"
+        "UseDNS=yes\n";
+    if (write_file("run/systemd/network/10-droidspaces-eth0.network",
+                   network) < 0)
+      ds_warn("[NET] Cannot write direct-L2 systemd-networkd configuration");
+  }
+
+  ds_log("[NET] Guest network services: %s (mode=%d, ipam=%s)",
+         allow_guest ? "enabled" : "blocked", cfg->net_mode,
+         cfg->net_ipam == DS_NET_IPAM_STATIC ? "static" : "dhcp");
+}
+
 /*
  * ds_apply_capability_hardening()
  *
@@ -144,9 +205,18 @@ int internal_boot(struct ds_config *cfg) {
       }
     }
 
+    if ((cfg->net_mode == DS_NET_IPVLAN ||
+         cfg->net_mode == DS_NET_MACVLAN) &&
+        hs.status < 0)
+      ds_die("Direct L2 network setup failed: %s", strerror(-hs.status));
+
     /* Configure our side of the veth (or just loopback for DS_NET_NONE) */
     if (cfg->net_mode == DS_NET_NAT || cfg->net_mode == DS_NET_GATEWAY) {
       setup_veth_child_side_named(cfg, hs.peer_name, hs.ip_str);
+    } else if (cfg->net_mode == DS_NET_IPVLAN ||
+               cfg->net_mode == DS_NET_MACVLAN) {
+      if (setup_parent_link_child_side(cfg, hs.peer_name) < 0)
+        ds_die("Failed to configure direct L2 interface inside container");
     } else {
       /* DS_NET_NONE: just bring up loopback */
       ds_nl_ctx_t *nlctx = ds_nl_open();
@@ -480,6 +550,8 @@ int internal_boot(struct ds_config *cfg) {
   if (ds_config_save("run/droidspaces/container.config", cfg) < 0) {
     ds_warn("Boot: Failed to save internal configuration backup");
   }
+
+  ds_write_guest_network_policy(cfg);
 
   write_file("run/droidspaces/name", cfg->container_name);
 

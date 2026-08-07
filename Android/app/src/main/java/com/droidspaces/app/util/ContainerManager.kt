@@ -30,6 +30,11 @@ data class ContainerInfo(
     val hostname: String,
     val rootfsPath: String,
     val netMode: String = Constants.DEFAULT_NET_MODE,
+    val netParent: String = "",
+    val netMac: String = "",
+    val netIpam: String = "dhcp",
+    val netAddress: String = "",
+    val netGateway: String = "",
     val disableIPv6: Boolean = false,
     val enableAndroidStorage: Boolean = false,
     val enableHwAccess: Boolean = false,
@@ -75,6 +80,15 @@ data class ContainerInfo(
         appendLine("hostname=$hostname")
         appendLine("rootfs_path=$rootfsPath")
         appendLine("net_mode=$netMode")
+        if (netMode == "ipvlan" || netMode == "macvlan") {
+            appendLine("net_parent=$netParent")
+            if (netMode == "macvlan" && netMac.isNotBlank()) appendLine("net_mac=$netMac")
+            appendLine("net_ipam=$netIpam")
+            if (netIpam == "static") {
+                appendLine("net_address=$netAddress")
+                appendLine("net_gateway=$netGateway")
+            }
+        }
         appendLine("disable_ipv6=${if (disableIPv6) "1" else "0"}")
         appendLine("enable_android_storage=${if (enableAndroidStorage) "1" else "0"}")
         appendLine("enable_hw_access=${if (enableHwAccess) "1" else "0"}")
@@ -319,6 +333,11 @@ object ContainerManager {
                     getRootfsPath(containerName)
                 },
                 netMode = configMap["net_mode"] ?: Constants.DEFAULT_NET_MODE,
+                netParent = configMap["net_parent"] ?: "",
+                netMac = configMap["net_mac"] ?: "",
+                netIpam = configMap["net_ipam"] ?: "dhcp",
+                netAddress = configMap["net_address"] ?: "",
+                netGateway = configMap["net_gateway"] ?: "",
                 disableIPv6 = configMap["disable_ipv6"] == "1",
                 enableAndroidStorage = configMap["enable_android_storage"] == "1",
                 enableHwAccess = configMap["enable_hw_access"] == "1",

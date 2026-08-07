@@ -456,6 +456,7 @@ reboot_loop:;
       }
       close(cfg->net_ready_pipe[0]);
 
+      int net_setup_status = 0;
       if (cfg->net_mode == DS_NET_NAT) {
         if (setup_veth_host_side(cfg, netns_pid) < 0) {
           ds_warn("[NET] Monitor: setup_veth_host_side failed - "
@@ -470,6 +471,12 @@ reboot_loop:;
           ds_warn("[NET] Monitor: setup_gateway_veth_side failed - "
                   "container will remain isolated");
         }
+      } else if (cfg->net_mode == DS_NET_IPVLAN ||
+                 cfg->net_mode == DS_NET_MACVLAN) {
+        net_setup_status = setup_parent_link_host_side(cfg, netns_pid);
+        if (net_setup_status < 0)
+          ds_warn("[NET] Monitor: direct L2 link setup failed: %s",
+                  strerror(-net_setup_status));
       }
 
       /* Gateway self-heal: if any running client delegates to THIS container as
@@ -491,6 +498,7 @@ reboot_loop:;
       /* Send handshake to init */
       struct ds_net_handshake hs;
       ds_net_derive_handshake(netns_pid, cfg, &hs);
+      hs.status = net_setup_status;
       if (cfg->net_mode == DS_NET_GATEWAY)
         ds_log("[NET] Monitor: sending DONE (gateway mode: eth0 is wired "
                "host-side, IP comes from the gateway's DHCP)");

@@ -408,6 +408,89 @@ int ds_nl_create_veth(ds_nl_ctx_t *ctx, const char *host, const char *peer) {
   return ds_nl_talk(ctx, &req.n);
 }
 
+/* Create an ipvlan L2 or macvlan bridge link attached to a real host link.
+ * The link is deliberately created in the host namespace first so Android's
+ * parent ifindex can be referenced, then the caller moves it into the guest. */
+int ds_nl_create_parent_link(ds_nl_ctx_t *ctx, const char *parent,
+                             const char *name, const char *kind) {
+  int parent_idx = ds_nl_get_ifindex(ctx, parent);
+  if (parent_idx <= 0)
+    return -ENODEV;
+  if (strcmp(kind, "ipvlan") != 0 && strcmp(kind, "macvlan") != 0)
+    return -EINVAL;
+
+  struct {
+    struct nlmsghdr n;
+    struct ifinfomsg i;
+    char buf[1024];
+  } req;
+  memset(&req, 0, sizeof(req));
+  req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+  req.n.nlmsg_type = RTM_NEWLINK;
+  req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL | NLM_F_ACK;
+  req.i.ifi_family = AF_UNSPEC;
+
+  nl_addattr(&req.n, (int)sizeof(req), IFLA_LINK, &parent_idx,
+             (int)sizeof(parent_idx));
+  nl_addattr(&req.n, (int)sizeof(req), IFLA_IFNAME, name,
+             (int)strlen(name) + 1);
+
+  struct rtattr *linfo = nl_nest_begin(&req.n, (int)sizeof(req), IFLA_LINKINFO);
+  nl_addattr(&req.n, (int)sizeof(req), IFLA_INFO_KIND, kind,
+             (int)strlen(kind) + 1);
+  struct rtattr *ldata =
+      nl_nest_begin(&req.n, (int)sizeof(req), IFLA_INFO_DATA);
+  if (strcmp(kind, "ipvlan") == 0) {
+    uint16_t mode = IPVLAN_MODE_L2;
+    nl_addattr(&req.n, (int)sizeof(req), IFLA_IPVLAN_MODE, &mode,
+               (int)sizeof(mode));
+  } else {
+    uint32_t mode = MACVLAN_MODE_BRIDGE;
+    nl_addattr(&req.n, (int)sizeof(req), IFLA_MACVLAN_MODE, &mode,
+               (int)sizeof(mode));
+  }
+  nl_nest_end(&req.n, ldata);
+  nl_nest_end(&req.n, linfo);
+  return ds_nl_talk(ctx, &req.n);
+}
+
+int ds_nl_probe_parent_capability(const char *parent, const char *kind,
+                                  char *reason, size_t rsz) {
+  if (!parent || !parent[0] || !kind) {
+    snprintf(reason, rsz, "A parent interface is required.");
+    return -EINVAL;
+  }
+
+  ds_nl_ctx_t *ctx = ds_nl_open();
+  if (!ctx) {
+    snprintf(reason, rsz, "Failed to open NETLINK_ROUTE socket: %s",
+             strerror(errno));
+    return -errno;
+  }
+  if (ds_nl_get_ifindex(ctx, parent) <= 0) {
+    snprintf(reason, rsz, "Parent interface '%s' does not exist.", parent);
+    ds_nl_close(ctx);
+    return -ENODEV;
+  }
+
+  char probe[IFNAMSIZ];
+  snprintf(probe, sizeof(probe), "%s%x",
+           strcmp(kind, "ipvlan") == 0 ? "ds-ci" : "ds-cm",
+           (unsigned int)getpid());
+  int ret = ds_nl_create_parent_link(ctx, parent, probe, kind);
+  if (ret == 0)
+    ds_nl_del_link(ctx, probe);
+  ds_nl_close(ctx);
+
+  if (ret < 0) {
+    snprintf(reason, rsz, "%s on parent '%s' failed: %s", kind, parent,
+             strerror(-ret));
+    return ret;
+  }
+  snprintf(reason, rsz, "OK (%s on %s)", kind, parent);
+  return 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Attach an interface to a bridge (IFLA_MASTER)
  * ---------------------------------------------------------------------------*/

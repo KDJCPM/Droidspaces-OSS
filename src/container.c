@@ -1593,6 +1593,12 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
     case DS_NET_GATEWAY:
       net = "gateway";
       break;
+    case DS_NET_IPVLAN:
+      net = "ipvlan";
+      break;
+    case DS_NET_MACVLAN:
+      net = "macvlan";
+      break;
     default:
       net = "host";
       break;
@@ -1620,6 +1626,15 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
         printf("GATEWAY_BRIDGE=%s\n", cfg->gateway_bridge);
       printf("GATEWAY_IFACE=%s\n",
              cfg->gateway_lan_ifname[0] ? cfg->gateway_lan_ifname : "eth1");
+    } else if (cfg->net_mode == DS_NET_IPVLAN ||
+               cfg->net_mode == DS_NET_MACVLAN) {
+      printf("NET_PARENT=%s\n", cfg->net_parent);
+      printf("NET_IPAM=%s\n",
+             cfg->net_ipam == DS_NET_IPAM_STATIC ? "static" : "dhcp");
+      if (cfg->net_ipam == DS_NET_IPAM_STATIC) {
+        printf("NET_ADDRESS=%s\n", cfg->net_address);
+        printf("NET_GATEWAY=%s\n", cfg->net_gateway);
+      }
     }
 
     printf("DISABLE_IPV6=%d\n", cfg->disable_ipv6);
@@ -1754,6 +1769,12 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
     case DS_NET_GATEWAY:
       net = "gateway";
       break;
+    case DS_NET_IPVLAN:
+      net = "ipvlan";
+      break;
+    case DS_NET_MACVLAN:
+      net = "macvlan";
+      break;
     default:
       net = "host";
       break;
@@ -1766,6 +1787,17 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
       printf("  Gateway: %s (%s)\n", cfg->gateway_container,
              cfg->gateway_net[0] ? cfg->gateway_net : "lan");
       feat_count++;
+    }
+
+    if (cfg->net_mode == DS_NET_IPVLAN || cfg->net_mode == DS_NET_MACVLAN) {
+      printf("  Parent: %s\n", cfg->net_parent);
+      printf("  Addressing: %s", cfg->net_ipam == DS_NET_IPAM_STATIC
+                                       ? "static"
+                                       : "DHCP (guest manager)");
+      if (cfg->net_ipam == DS_NET_IPAM_STATIC)
+        printf(" (%s via %s)", cfg->net_address, cfg->net_gateway);
+      printf("\n");
+      feat_count += 2;
     }
 
     if (cfg->net_mode == DS_NET_NAT) {

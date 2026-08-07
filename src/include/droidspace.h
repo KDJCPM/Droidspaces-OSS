@@ -205,6 +205,13 @@ enum ds_net_mode {
   DS_NET_NAT,      /* isolated netns + bridge + MASQUERADE      */
   DS_NET_NONE,     /* isolated netns with loopback only          */
   DS_NET_GATEWAY,  /* isolated netns attached to gateway LAN     */
+  DS_NET_IPVLAN,   /* ipvlan L2 child of an Android host link     */
+  DS_NET_MACVLAN,  /* macvlan bridge child of an Android host link */
+};
+
+enum ds_net_ipam {
+  DS_NET_IPAM_DHCP = 0, /* guest network manager requests a lease */
+  DS_NET_IPAM_STATIC,   /* runtime assigns net_address/gateway    */
 };
 
 /* Opaque RTNETLINK context - defined in ds_netlink.c */
@@ -212,6 +219,7 @@ typedef struct ds_nl_ctx ds_nl_ctx_t;
 
 /* Handshake payload: Monitor → init via net_done_pipe */
 struct ds_net_handshake {
+  int status;         /* 0 on success, negative errno on failure */
   char peer_name[16]; /* e.g. "ds-p12345"        */
   char ip_str[32];    /* e.g. "172.28.4.47/16"  */
 };
@@ -346,7 +354,12 @@ struct ds_config {
   char container_name[256];          /* --name= (mandatory) */
   char hostname[256];                /* --hostname= or container_name */
   char dns_servers[1024];            /* --dns= (comma/space separated) */
-  enum ds_net_mode net_mode;         /* --net=host|nat|none|gateway */
+  enum ds_net_mode net_mode;         /* --net=host|nat|none|gateway|... */
+  enum ds_net_ipam net_ipam;         /* --net-ipam=dhcp|static */
+  char net_parent[IFNAMSIZ];          /* --net-parent=IFACE */
+  char net_mac[18];                   /* --net-mac=XX:XX:XX:XX:XX:XX */
+  char net_address[32];               /* --net-address=IPv4/PREFIX */
+  char net_gateway[INET_ADDRSTRLEN];  /* --net-gateway=IPv4 */
   char dns_server_content[1024];     /* In-memory DNS config for boot */
   char gateway_container[256];       /* --gateway=NAME for gateway mode */
   char gateway_net[64];              /* --gateway-net=NAME (default: lan) */
@@ -709,6 +722,14 @@ int setup_veth_host_side(struct ds_config *cfg, pid_t child_pid);
 /* Gateway LAN lifecycle: bridge-only veth plumbing, no NAT/DHCP/firewall. */
 int setup_gateway_veth_side(struct ds_config *cfg, pid_t child_pid);
 
+/* Direct L2 lifecycle for ipvlan/macvlan modes. */
+int setup_parent_link_host_side(struct ds_config *cfg, pid_t child_pid);
+/* Resolve a blank ipvlan/macvlan parent to the host's active uplink.  An
+ * explicitly configured parent is preserved. */
+int ds_net_resolve_parent(struct ds_config *cfg, char *reason, size_t reason_size);
+int ds_parse_mac_address(const char *text, uint8_t mac[6]);
+int setup_parent_link_child_side(struct ds_config *cfg, const char *peer_name);
+
 int setup_veth_child_side_named(struct ds_config *cfg, const char *peer_name,
                                 const char *ip_str);
 /* Populate a ds_net_handshake from a container init PID + resolved config.
@@ -747,6 +768,8 @@ int ds_nl_link_exists(ds_nl_ctx_t *ctx, const char *ifname);
 int ds_nl_get_ifindex(ds_nl_ctx_t *ctx, const char *ifname);
 int ds_nl_create_bridge(ds_nl_ctx_t *ctx, const char *name);
 int ds_nl_create_veth(ds_nl_ctx_t *ctx, const char *host, const char *peer);
+int ds_nl_create_parent_link(ds_nl_ctx_t *ctx, const char *parent,
+                             const char *name, const char *kind);
 int ds_nl_set_master(ds_nl_ctx_t *ctx, const char *ifname, const char *master);
 int ds_nl_link_up(ds_nl_ctx_t *ctx, const char *ifname);
 int ds_nl_link_down(ds_nl_ctx_t *ctx, const char *ifname);
@@ -777,6 +800,8 @@ int ds_nl_count_bridge_members_with_prefix(ds_nl_ctx_t *ctx, const char *bridge,
 int ds_nl_list_ifaces(ds_nl_ctx_t *ctx, char names[][IFNAMSIZ], int max);
 /* Kernel capability probe - call before any NAT setup */
 int ds_nl_probe_nat_capability(char *reason, size_t rsz);
+int ds_nl_probe_parent_capability(const char *parent, const char *kind,
+                                  char *reason, size_t rsz);
 
 /* ---------------------------------------------------------------------------
  * ds_iptables.c
