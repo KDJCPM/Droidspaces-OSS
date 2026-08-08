@@ -400,6 +400,29 @@ fun ContainerConfigForm(
                     onSelect = { onStateChange(state.copy(netIpam = it)) },
                     leadingIcon = Icons.Default.NetworkCheck
                 )
+                DsDropdown(
+                    label = context.getString(R.string.host_access),
+                    selected = state.hostAccess,
+                    options = listOf("none", "ptp", "shim"),
+                    displayName = {
+                        context.getString(when (it) {
+                            "ptp" -> R.string.host_access_ptp
+                            "shim" -> R.string.host_access_shim
+                            else -> R.string.host_access_none
+                        })
+                    },
+                    onSelect = { onStateChange(state.copy(hostAccess = it)) },
+                    leadingIcon = Icons.Default.SettingsEthernet
+                )
+                Text(
+                    text = context.getString(when (state.hostAccess) {
+                        "ptp" -> R.string.host_access_ptp_explain
+                        "shim" -> R.string.host_access_shim_explain
+                        else -> R.string.host_access_none_explain
+                    }),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (state.netIpam == "static") {
                     OutlinedTextField(
                         value = state.netAddress,

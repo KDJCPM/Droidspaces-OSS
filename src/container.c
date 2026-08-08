@@ -265,7 +265,10 @@ void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
   }
 
   /* Network cleanup: remove host veth and owned network state */
-  if (cfg->net_mode == DS_NET_NAT || cfg->net_mode == DS_NET_GATEWAY) {
+  if (cfg->net_mode == DS_NET_NAT || cfg->net_mode == DS_NET_GATEWAY ||
+      ((cfg->net_mode == DS_NET_IPVLAN ||
+        cfg->net_mode == DS_NET_MACVLAN) &&
+       cfg->host_access != DS_HOST_ACCESS_NONE)) {
     ds_net_cleanup(cfg, pid > 0 ? pid : cfg->container_pid);
   }
 
@@ -542,6 +545,10 @@ int start_rootfs(struct ds_config *cfg) {
    * Only relevant for NAT mode -- host/none modes skip this cleanly. */
   if (cfg->net_mode == DS_NET_NAT)
     ds_net_resolve_static_ip(cfg);
+  if ((cfg->net_mode == DS_NET_IPVLAN ||
+       cfg->net_mode == DS_NET_MACVLAN) &&
+      cfg->host_access == DS_HOST_ACCESS_PTP)
+    ds_host_access_resolve_ptp(cfg);
 
   /* Persist UUID and resolved static_nat_ip (for NAT) to config immediately
    * so disk always matches the running container. CLI overrides (e.g. -f)
@@ -1631,6 +1638,14 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
       printf("NET_PARENT=%s\n", cfg->net_parent);
       printf("NET_IPAM=%s\n",
              cfg->net_ipam == DS_NET_IPAM_STATIC ? "static" : "dhcp");
+      printf("HOST_ACCESS=%s\n",
+             cfg->host_access == DS_HOST_ACCESS_PTP
+                 ? "ptp"
+                 : (cfg->host_access == DS_HOST_ACCESS_SHIM ? "shim" :
+                                                                  "none"));
+      if (cfg->host_access == DS_HOST_ACCESS_PTP &&
+          cfg->host_access_ptp_cidr[0])
+        printf("HOST_ACCESS_PTP_CIDR=%s\n", cfg->host_access_ptp_cidr);
       if (cfg->net_ipam == DS_NET_IPAM_STATIC) {
         printf("NET_ADDRESS=%s\n", cfg->net_address);
         printf("NET_GATEWAY=%s\n", cfg->net_gateway);
@@ -1797,7 +1812,12 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
       if (cfg->net_ipam == DS_NET_IPAM_STATIC)
         printf(" (%s via %s)", cfg->net_address, cfg->net_gateway);
       printf("\n");
-      feat_count += 2;
+      printf("  Host access: %s\n",
+             cfg->host_access == DS_HOST_ACCESS_PTP
+                 ? "private PTP"
+                 : (cfg->host_access == DS_HOST_ACCESS_SHIM ? "LAN shim" :
+                                                                  "none"));
+      feat_count += 3;
     }
 
     if (cfg->net_mode == DS_NET_NAT) {

@@ -106,6 +106,15 @@ fun InstallationSummaryScreen(
                             stringResource(if (config.netIpam == "static") R.string.net_ipam_static else R.string.net_ipam_dhcp),
                             Icons.Default.NetworkCheck
                         )
+                        SummaryItem(
+                            stringResource(R.string.host_access),
+                            stringResource(when (config.hostAccess) {
+                                "ptp" -> R.string.host_access_ptp
+                                "shim" -> R.string.host_access_shim
+                                else -> R.string.host_access_none
+                            }),
+                            Icons.Default.SettingsEthernet
+                        )
                     }
                     if (config.useSparseImage && config.sparseImageSizeGB != null) {
                         SummaryItem(stringResource(R.string.storage_configuration), "${stringResource(R.string.sparse_image_configuration)} (${config.sparseImageSizeGB}GB)", Icons.Default.Storage)

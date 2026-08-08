@@ -493,6 +493,13 @@
     <string name="net_ipam_dhcp">DHCP（容器网络管理器）</string>
     <string name="net_ipam_static">静态</string>
     <string name="net_address">IPv4 地址 / 前缀</string>
+    <string name="host_access">宿主互通</string>
+    <string name="host_access_none">不启用</string>
+    <string name="host_access_ptp">专用 PTP（推荐）</string>
+    <string name="host_access_shim">直连局域网地址（shim）</string>
+    <string name="host_access_none_explain">保持 ipvlan/macvlan 默认的宿主隔离行为。</string>
+    <string name="host_access_ptp_explain">增加专用 dshost0 链路，可靠实现宿主与容器互通，不改变容器的局域网地址。</string>
+    <string name="host_access_shim_explain">通过共享父接口 shim 路由容器的局域网 IPv4；DHCP 地址会自动检测。</string>
     <string name="net_gateway">默认网关</string>
     <string name="net_static_error">请输入有效的 IPv4 CIDR 和 IPv4 网关。</string>
     <string name="ipvlan_dhcp_warning">IPvlan 与父接口共用 MAC。Droidspaces 会让 systemd-networkd 使用 DUID 客户端标识，但部分路由器只按 MAC 识别租约，可能无法分配独立地址。</string>

@@ -386,6 +386,18 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
         cfg->net_ipam = DS_NET_IPAM_DHCP;
       else
         ds_warn("config: unknown net_ipam '%s'; using dhcp", val);
+    } else if (strcmp(key, "host_access") == 0) {
+      if (strcmp(val, "ptp") == 0)
+        cfg->host_access = DS_HOST_ACCESS_PTP;
+      else if (strcmp(val, "shim") == 0)
+        cfg->host_access = DS_HOST_ACCESS_SHIM;
+      else if (strcmp(val, "none") == 0)
+        cfg->host_access = DS_HOST_ACCESS_NONE;
+      else
+        ds_warn("config: unknown host_access '%s'; using none", val);
+    } else if (strcmp(key, "host_access_ptp_cidr") == 0) {
+      safe_strncpy(cfg->host_access_ptp_cidr, val,
+                   sizeof(cfg->host_access_ptp_cidr));
     } else if (strcmp(key, "net_parent") == 0) {
       if (strlen(val) < IFNAMSIZ)
         safe_strncpy(cfg->net_parent, val, sizeof(cfg->net_parent));
@@ -745,6 +757,14 @@ static void ds_config_serialize_known(FILE *f, struct ds_config *cfg) {
       fprintf(f, "net_parent=%s\n", cfg->net_parent);
     fprintf(f, "net_ipam=%s\n",
             cfg->net_ipam == DS_NET_IPAM_STATIC ? "static" : "dhcp");
+    fprintf(f, "host_access=%s\n",
+            cfg->host_access == DS_HOST_ACCESS_PTP
+                ? "ptp"
+                : (cfg->host_access == DS_HOST_ACCESS_SHIM ? "shim" :
+                                                               "none"));
+    if (cfg->host_access == DS_HOST_ACCESS_PTP &&
+        cfg->host_access_ptp_cidr[0])
+      fprintf(f, "host_access_ptp_cidr=%s\n", cfg->host_access_ptp_cidr);
     if (cfg->net_mode == DS_NET_MACVLAN && cfg->net_mac[0])
       fprintf(f, "net_mac=%s\n", cfg->net_mac);
     if (cfg->net_ipam == DS_NET_IPAM_STATIC) {
@@ -985,6 +1005,11 @@ int ds_config_validate(struct ds_config *cfg) {
          ds_parse_mac_address(cfg->net_mac, (uint8_t[6]){0}) < 0) ||
         (cfg->net_mode == DS_NET_IPVLAN && cfg->net_mac[0]))
       errors++;
+    if (cfg->host_access < DS_HOST_ACCESS_NONE ||
+        cfg->host_access > DS_HOST_ACCESS_SHIM)
+      errors++;
+  } else if (cfg->host_access != DS_HOST_ACCESS_NONE) {
+    errors++;
   }
 
   return (errors > 0) ? -1 : 0;

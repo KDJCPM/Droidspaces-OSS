@@ -214,6 +214,12 @@ enum ds_net_ipam {
   DS_NET_IPAM_STATIC,   /* runtime assigns net_address/gateway    */
 };
 
+enum ds_host_access {
+  DS_HOST_ACCESS_NONE = 0, /* direct-L2 keeps normal host isolation */
+  DS_HOST_ACCESS_PTP,      /* private host<->guest veth control link */
+  DS_HOST_ACCESS_SHIM,     /* shared parent child + per-guest /32 route */
+};
+
 /* Opaque RTNETLINK context - defined in ds_netlink.c */
 typedef struct ds_nl_ctx ds_nl_ctx_t;
 
@@ -356,10 +362,12 @@ struct ds_config {
   char dns_servers[1024];            /* --dns= (comma/space separated) */
   enum ds_net_mode net_mode;         /* --net=host|nat|none|gateway|... */
   enum ds_net_ipam net_ipam;         /* --net-ipam=dhcp|static */
+  enum ds_host_access host_access;   /* --host-access=none|ptp|shim */
   char net_parent[IFNAMSIZ];          /* --net-parent=IFACE */
   char net_mac[18];                   /* --net-mac=XX:XX:XX:XX:XX:XX */
   char net_address[32];               /* --net-address=IPv4/PREFIX */
   char net_gateway[INET_ADDRSTRLEN];  /* --net-gateway=IPv4 */
+  char host_access_ptp_cidr[32];      /* internal stable 169.254.x.x/30 */
   char dns_server_content[1024];     /* In-memory DNS config for boot */
   char gateway_container[256];       /* --gateway=NAME for gateway mode */
   char gateway_net[64];              /* --gateway-net=NAME (default: lan) */
@@ -724,6 +732,10 @@ int setup_gateway_veth_side(struct ds_config *cfg, pid_t child_pid);
 
 /* Direct L2 lifecycle for ipvlan/macvlan modes. */
 int setup_parent_link_host_side(struct ds_config *cfg, pid_t child_pid);
+int ds_host_access_setup(struct ds_config *cfg, pid_t child_pid);
+void ds_host_access_refresh(struct ds_config *cfg, pid_t child_pid);
+void ds_host_access_cleanup(struct ds_config *cfg, pid_t child_pid);
+void ds_host_access_resolve_ptp(struct ds_config *cfg);
 /* Resolve a blank ipvlan/macvlan parent to the host's active uplink.  An
  * explicitly configured parent is preserved. */
 int ds_net_resolve_parent(struct ds_config *cfg, char *reason, size_t reason_size);
@@ -778,7 +790,13 @@ int ds_nl_rename(ds_nl_ctx_t *ctx, const char *ifname, const char *newname);
 int ds_nl_set_mac(ds_nl_ctx_t *ctx, const char *ifname, const uint8_t mac[6]);
 int ds_nl_add_addr4(ds_nl_ctx_t *ctx, const char *ifname, uint32_t ip_be,
                     uint8_t prefix);
+int ds_nl_del_addr4(ds_nl_ctx_t *ctx, const char *ifname, uint32_t ip_be,
+                    uint8_t prefix);
+int ds_nl_get_addr4(ds_nl_ctx_t *ctx, const char *ifname, uint32_t *ip_be,
+                    uint8_t *prefix);
 int ds_nl_add_route4(ds_nl_ctx_t *ctx, uint32_t dst_be, uint8_t dst_len,
+                     uint32_t gw_be, int oif_idx);
+int ds_nl_del_route4(ds_nl_ctx_t *ctx, uint32_t dst_be, uint8_t dst_len,
                      uint32_t gw_be, int oif_idx);
 int ds_nl_move_to_netns(ds_nl_ctx_t *ctx, const char *ifname, int netns_fd);
 int ds_nl_move_to_netns_named(ds_nl_ctx_t *ctx, const char *ifname,

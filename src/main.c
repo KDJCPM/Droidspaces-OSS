@@ -60,6 +60,7 @@ void print_usage(void) {
       "      --net-parent=IFACE    Parent link; blank config auto-detects uplink\n"
       "      --net-mac=MAC         Optional macvlan MAC; blank leaves it unmanaged\n"
       "      --net-ipam=MODE       Addressing: dhcp (default) or static\n"
+      "      --host-access=MODE    Host reachability: none, ptp, or shim\n"
       "      --net-address=CIDR    Static IPv4 address, e.g. 192.168.1.50/24\n"
       "      --net-gateway=IP      Static IPv4 default gateway\n"
       "      --gateway=NAME        Gateway container for --net=gateway\n"
@@ -289,6 +290,9 @@ static int validate_configuration_cli(struct ds_config *cfg) {
       ds_error("--net-mac is only valid with --net=macvlan.");
       errors++;
     }
+  } else if (cfg->host_access != DS_HOST_ACCESS_NONE) {
+    ds_error("--host-access is only valid with --net=ipvlan or macvlan.");
+    errors++;
   }
 
   return (errors > 0) ? -1 : 0;
@@ -502,6 +506,7 @@ int main(int argc, char **argv) {
       {"net-address", required_argument, 0, 282},
       {"net-gateway", required_argument, 0, 283},
       {"net-mac", required_argument, 0, 284},
+      {"host-access", required_argument, 0, 285},
       {"reset", no_argument, 0, 256},
       {"format", no_argument, 0, 265},
       {"memory", required_argument, 0, 266},
@@ -802,6 +807,21 @@ int main(int argc, char **argv) {
       break;
     case 284:
       safe_strncpy(cfg.net_mac, optarg, sizeof(cfg.net_mac));
+      break;
+    case 285:
+      if (strcmp(optarg, "none") == 0)
+        cfg.host_access = DS_HOST_ACCESS_NONE;
+      else if (strcmp(optarg, "ptp") == 0)
+        cfg.host_access = DS_HOST_ACCESS_PTP;
+      else if (strcmp(optarg, "shim") == 0)
+        cfg.host_access = DS_HOST_ACCESS_SHIM;
+      else {
+        ds_error("Unknown --host-access value '%s' (expected none, ptp, or "
+                 "shim)",
+                 optarg);
+        ret = 1;
+        goto cleanup;
+      }
       break;
     case 'I':
       cfg.disable_ipv6 = 1;

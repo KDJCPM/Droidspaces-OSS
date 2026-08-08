@@ -2385,6 +2385,12 @@ void ds_net_cleanup(struct ds_config *cfg, pid_t container_pid) {
    * to us, so it is safe to run for every stopping container. */
   ds_net_gateway_teardown(cfg->container_name);
 
+  if ((cfg->net_mode == DS_NET_IPVLAN || cfg->net_mode == DS_NET_MACVLAN) &&
+      cfg->host_access != DS_HOST_ACCESS_NONE) {
+    ds_host_access_cleanup(cfg, container_pid);
+    return;
+  }
+
   if (cfg->net_mode == DS_NET_GATEWAY) {
     ds_nl_ctx_t *ctx = ds_nl_open();
     if (!ctx)

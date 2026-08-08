@@ -765,6 +765,10 @@ static int socketd_validate_start_config(struct ds_config *cfg) {
                reason);
       return -1;
     }
+  } else if (cfg->host_access != DS_HOST_ACCESS_NONE) {
+    ds_error("Container '%s' enables host access outside ipvlan/macvlan mode",
+             cfg->container_name);
+    return -1;
   }
 
   return 0;

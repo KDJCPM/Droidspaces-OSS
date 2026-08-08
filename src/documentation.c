@@ -296,6 +296,8 @@ static void print_page(int page, const char *bin) {
     p_printf("  --net-parent=IFACE                 Parent, e.g. wlan0/eth0\n");
     p_printf("  --net-ipam=dhcp                    Guest network manager uses "
              "upstream DHCP\n");
+    p_printf("  --host-access=none|ptp|shim        Optional host/container "
+             "reachability\n");
     p_printf("  --net-ipam=static --net-address=A/P --net-gateway=G\n");
     p_printf("  No Droidspaces bridge, NAT, or embedded DHCP server is used.\n\n");
 

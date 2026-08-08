@@ -33,6 +33,8 @@ data class ContainerInfo(
     val netParent: String = "",
     val netMac: String = "",
     val netIpam: String = "dhcp",
+    val hostAccess: String = "none",
+    val hostAccessPtpCidr: String = "",
     val netAddress: String = "",
     val netGateway: String = "",
     val disableIPv6: Boolean = false,
@@ -84,6 +86,10 @@ data class ContainerInfo(
             appendLine("net_parent=$netParent")
             if (netMode == "macvlan" && netMac.isNotBlank()) appendLine("net_mac=$netMac")
             appendLine("net_ipam=$netIpam")
+            appendLine("host_access=$hostAccess")
+            if (hostAccess == "ptp" && hostAccessPtpCidr.isNotBlank()) {
+                appendLine("host_access_ptp_cidr=$hostAccessPtpCidr")
+            }
             if (netIpam == "static") {
                 appendLine("net_address=$netAddress")
                 appendLine("net_gateway=$netGateway")
@@ -336,6 +342,8 @@ object ContainerManager {
                 netParent = configMap["net_parent"] ?: "",
                 netMac = configMap["net_mac"] ?: "",
                 netIpam = configMap["net_ipam"] ?: "dhcp",
+                hostAccess = configMap["host_access"] ?: "none",
+                hostAccessPtpCidr = configMap["host_access_ptp_cidr"] ?: "",
                 netAddress = configMap["net_address"] ?: "",
                 netGateway = configMap["net_gateway"] ?: "",
                 disableIPv6 = configMap["disable_ipv6"] == "1",

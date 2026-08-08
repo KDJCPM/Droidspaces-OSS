@@ -254,6 +254,13 @@
     <string name="net_ipam_dhcp">DHCP (guest network manager)</string>
     <string name="net_ipam_static">Static</string>
     <string name="net_address">IPv4 address / prefix</string>
+    <string name="host_access">Host access</string>
+    <string name="host_access_none">None</string>
+    <string name="host_access_ptp">Private PTP (recommended)</string>
+    <string name="host_access_shim">Direct LAN address (shim)</string>
+    <string name="host_access_none_explain">Keep the normal ipvlan/macvlan host isolation.</string>
+    <string name="host_access_ptp_explain">Adds a private dshost0 link for reliable host-to-container access without changing the LAN address.</string>
+    <string name="host_access_shim_explain">Routes the container’s LAN IPv4 through a shared parent shim. DHCP addresses are detected automatically.</string>
     <string name="net_gateway">Default gateway</string>
     <string name="net_static_error">Enter a valid IPv4 CIDR and IPv4 gateway.</string>
     <string name="ipvlan_dhcp_warning">IPvlan shares the parent MAC. Droidspaces asks systemd-networkd to use a DUID client ID, but some routers identify leases only by MAC and may not issue separate leases.</string>

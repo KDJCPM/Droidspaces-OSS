@@ -477,6 +477,12 @@ reboot_loop:;
         if (net_setup_status < 0)
           ds_warn("[NET] Monitor: direct L2 link setup failed: %s",
                   strerror(-net_setup_status));
+        else if (cfg->host_access != DS_HOST_ACCESS_NONE) {
+          int ha_ret = ds_host_access_setup(cfg, netns_pid);
+          if (ha_ret < 0)
+            ds_warn("[NET] Monitor: host access setup deferred: %s",
+                    strerror(-ha_ret));
+        }
       }
 
       /* Gateway self-heal: if any running client delegates to THIS container as
@@ -554,6 +560,7 @@ reboot_loop:;
     sigaddset(&mask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &mask, NULL);
     int sfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+    unsigned int host_access_ticks = 0;
 
     while (1) {
       pid_t r = waitpid(mid_pid, &status, WNOHANG);
@@ -578,6 +585,13 @@ reboot_loop:;
       }
 
       ds_virtualize_update(cfg);
+      if ((cfg->net_mode == DS_NET_IPVLAN ||
+           cfg->net_mode == DS_NET_MACVLAN) &&
+          cfg->host_access != DS_HOST_ACCESS_NONE &&
+          ++host_access_ticks >= 10) {
+        ds_host_access_refresh(cfg, cfg->container_pid);
+        host_access_ticks = 0;
+      }
 
       /* Poll the signalfd and, in background mode, the console PTY master.
        * poll() wakes immediately when the master becomes readable, so draining

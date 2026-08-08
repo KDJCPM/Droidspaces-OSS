@@ -42,6 +42,7 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/mount.c \
        $(SRC_DIR)/cgroup.c \
        $(SRC_DIR)/net/network.c \
+       $(SRC_DIR)/net/host_access.c \
        $(SRC_DIR)/terminal.c \
        $(SRC_DIR)/console.c \
        $(SRC_DIR)/pid.c \

@@ -188,6 +188,23 @@ static void ds_write_guest_network_policy(const struct ds_config *cfg) {
       ds_warn("[NET] Cannot write systemd network policy %s", file);
   }
 
+  /* dshost0 is a runtime-owned point-to-point control link.  The backend
+   * assigns both ends before init starts; guest managers must leave it alone
+   * while continuing to manage the direct-L2 eth0 normally. */
+  if (cfg->host_access == DS_HOST_ACCESS_PTP) {
+    mkdir("run/systemd/network", 0755);
+    if (write_file("run/systemd/network/05-droidspaces-host-access.network",
+                   "[Match]\nName=dshost0\n\n[Link]\nUnmanaged=yes\n") < 0)
+      ds_warn("[NET] Cannot write dshost0 systemd-networkd policy");
+
+    mkdir("run/NetworkManager", 0755);
+    mkdir("run/NetworkManager/conf.d", 0755);
+    if (write_file("run/NetworkManager/conf.d/"
+                   "05-droidspaces-host-access.conf",
+                   "[keyfile]\nunmanaged-devices=interface-name:dshost0\n") < 0)
+      ds_warn("[NET] Cannot write dshost0 NetworkManager policy");
+  }
+
   if (direct_dhcp) {
     mkdir("run/systemd/network", 0755);
 
