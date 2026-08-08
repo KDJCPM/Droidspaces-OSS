@@ -1,9 +1,10 @@
 /*
  * Direct-L2 host access for ipvlan/macvlan containers.
  *
- * PTP gives every container a private veth /30.  SHIM creates one shared
- * ipvlan/macvlan child per parent+kind, borrows the parent's IPv4 as /32, and
- * installs a host route for every live container address.
+ * PTP gives every container a private veth /30 and routes the host/container
+ * primary IPv4 addresses over it.  SHIM creates one shared ipvlan/macvlan
+ * child per parent+kind, borrows the parent's IPv4 as /32, and installs a host
+ * route for every live container address.
  */
 #include "droidspace.h"
 #include <arpa/inet.h>
@@ -259,7 +260,9 @@ void ds_host_access_resolve_ptp(struct ds_config *cfg) {
   ha_unlock(lock);
 }
 
-static int ha_configure_netns_ptp(pid_t pid, uint32_t guest_be) {
+static int ha_configure_netns_ptp(pid_t pid, uint32_t guest_be,
+                                  uint32_t host_be, uint32_t old_host_be,
+                                  uint32_t gateway_be) {
   int self_fd = open("/proc/self/ns/net", O_RDONLY | O_CLOEXEC);
   if (self_fd < 0)
     return -errno;
@@ -287,6 +290,13 @@ static int ha_configure_netns_ptp(pid_t pid, uint32_t guest_be) {
     ret = ds_nl_link_up(ctx, DS_HA_GUEST_IF);
   if (ret == 0)
     (void)ha_write_disable_ipv6(DS_HA_GUEST_IF);
+  int guest_idx = ds_nl_get_ifindex(ctx, DS_HA_GUEST_IF);
+  if (ret == 0 && guest_idx <= 0)
+    ret = -ENODEV;
+  if (ret == 0 && old_host_be && old_host_be != host_be)
+    (void)ds_nl_del_route4(ctx, old_host_be, 32, gateway_be, guest_idx);
+  if (ret == 0 && host_be)
+    ret = ds_nl_add_route4(ctx, host_be, 32, gateway_be, guest_idx);
   ds_nl_close(ctx);
 restore:
   if (setns(self_fd, CLONE_NEWNET) < 0 && ret == 0)
@@ -328,7 +338,8 @@ restore:
   return ret;
 }
 
-static int ha_setup_ptp(struct ds_config *cfg, pid_t pid) {
+static int ha_setup_ptp(struct ds_config *cfg, pid_t pid,
+                        int discover_guest) {
   uint32_t network_be;
   if (ha_parse_ptp_cidr(cfg->host_access_ptp_cidr, &network_be) < 0)
     return -EINVAL;
@@ -378,18 +389,72 @@ static int ha_setup_ptp(struct ds_config *cfg, pid_t pid) {
     ret = ds_nl_add_rule4(ctx, 0, 0, inet_addr(DS_HA_PTP_POOL),
                           DS_HA_PTP_POOL_PREFIX, RT_TABLE_MAIN,
                           DS_HA_RULE_PRIORITY);
+
+  uint32_t host_main_be = 0;
+  (void)ds_nl_get_addr4(ctx, cfg->net_parent, &host_main_be, NULL);
+  uint32_t old_host_main_be = 0;
+  if (have_old && old.host_ip[0])
+    (void)inet_pton(AF_INET, old.host_ip, &old_host_main_be);
   if (ret == 0)
-    ret = ha_configure_netns_ptp(pid, guest_be);
+    ret = ha_configure_netns_ptp(pid, guest_be, host_main_be,
+                                 old_host_main_be, host_be);
+
+  uint32_t guest_main_be = 0;
+  if (cfg->net_ipam == DS_NET_IPAM_STATIC && cfg->net_address[0]) {
+    char cidr[sizeof(cfg->net_address)];
+    safe_strncpy(cidr, cfg->net_address, sizeof(cidr));
+    char *slash = strchr(cidr, '/');
+    if (slash)
+      *slash = '\0';
+    (void)inet_pton(AF_INET, cidr, &guest_main_be);
+  } else if (discover_guest) {
+    (void)ha_get_guest_ip(pid, &guest_main_be);
+  }
+
+  int host_idx = ds_nl_get_ifindex(ctx, host);
+  if (ret == 0 && host_idx <= 0)
+    ret = -ENODEV;
+  char host_ip[INET_ADDRSTRLEN] = {0};
+  char guest_ip[INET_ADDRSTRLEN] = {0};
+  if (host_main_be) {
+    struct in_addr addr = {.s_addr = host_main_be};
+    (void)inet_ntop(AF_INET, &addr, host_ip, sizeof(host_ip));
+  }
+  if (guest_main_be) {
+    struct in_addr addr = {.s_addr = guest_main_be};
+    (void)inet_ntop(AF_INET, &addr, guest_ip, sizeof(guest_ip));
+  }
+  if (ret == 0 && have_old && old.guest_ip[0] &&
+      strcmp(old.guest_ip, guest_ip) != 0) {
+    struct in_addr old_guest;
+    if (inet_pton(AF_INET, old.guest_ip, &old_guest) == 1) {
+      (void)ds_nl_del_route4(ctx, old_guest.s_addr, 32, guest_be, host_idx);
+      (void)ds_nl_del_rule4(ctx, 0, 0, old_guest.s_addr, 32,
+                            RT_TABLE_MAIN, DS_HA_RULE_PRIORITY);
+    }
+  }
+  if (ret == 0 && guest_main_be) {
+    ret = ds_nl_add_route4(ctx, guest_main_be, 32, guest_be, host_idx);
+    if (ret == 0)
+      ret = ds_nl_add_rule4(ctx, 0, 0, guest_main_be, 32, RT_TABLE_MAIN,
+                            DS_HA_RULE_PRIORITY);
+  }
   if (ret == 0) {
     struct ha_state state = {0};
     safe_strncpy(state.mode, "ptp", sizeof(state.mode));
     safe_strncpy(state.shim, host, sizeof(state.shim));
+    safe_strncpy(state.parent, cfg->net_parent, sizeof(state.parent));
+    safe_strncpy(state.host_ip, host_ip, sizeof(state.host_ip));
+    safe_strncpy(state.guest_ip, guest_ip, sizeof(state.guest_ip));
     state.pid = pid;
     if (!have_old || !ha_state_equal(&old, &state))
       ha_write_state(cfg, &state);
-    if (!have_old || created)
-      ds_log("[NET] Host access PTP ready: host=%s guest=%s (%s)", host,
-             DS_HA_GUEST_IF, cfg->host_access_ptp_cidr);
+    if (!have_old || created || strcmp(old.guest_ip, guest_ip) != 0)
+      ds_log("[NET] Host access PTP ready: host=%s guest=%s (%s), "
+             "primary=%s<->%s",
+             host, DS_HA_GUEST_IF, cfg->host_access_ptp_cidr,
+             host_ip[0] ? host_ip : "unavailable",
+             guest_ip[0] ? guest_ip : "waiting-for-DHCP");
   }
 out:
   if (ret < 0)
@@ -514,7 +579,7 @@ int ds_host_access_setup(struct ds_config *cfg, pid_t child_pid) {
   ha_stop_path(cfg, stop_path, sizeof(stop_path));
   unlink(stop_path);
   if (cfg->host_access == DS_HOST_ACCESS_PTP)
-    return ha_setup_ptp(cfg, child_pid);
+    return ha_setup_ptp(cfg, child_pid, 0);
   if (cfg->host_access == DS_HOST_ACCESS_SHIM)
     return ha_setup_shim(cfg, child_pid, 0);
   return -EINVAL;
@@ -526,7 +591,7 @@ void ds_host_access_refresh(struct ds_config *cfg, pid_t child_pid) {
   if (ha_is_stopping(cfg))
     return;
   if (cfg->host_access == DS_HOST_ACCESS_PTP)
-    (void)ha_setup_ptp(cfg, child_pid);
+    (void)ha_setup_ptp(cfg, child_pid, 1);
   else if (cfg->host_access == DS_HOST_ACCESS_SHIM)
     (void)ha_setup_shim(cfg, child_pid, 1);
 }
@@ -582,6 +647,16 @@ void ds_host_access_cleanup(struct ds_config *cfg, pid_t child_pid) {
     int lock = ha_lock(host);
     ds_nl_ctx_t *ctx = ds_nl_open();
     if (ctx) {
+      if (state.guest_ip[0]) {
+        struct in_addr guest;
+        int idx = ds_nl_get_ifindex(ctx, host);
+        if (inet_pton(AF_INET, state.guest_ip, &guest) == 1) {
+          if (idx > 0)
+            (void)ds_nl_del_route4(ctx, guest.s_addr, 32, 0, idx);
+          (void)ds_nl_del_rule4(ctx, 0, 0, guest.s_addr, 32,
+                                RT_TABLE_MAIN, DS_HA_RULE_PRIORITY);
+        }
+      }
       ds_nl_del_link(ctx, host);
       if (ds_nl_count_ifaces_with_prefix(ctx, "ds-pt") == 0)
         (void)ds_nl_del_rule4(ctx, 0, 0, inet_addr(DS_HA_PTP_POOL),
