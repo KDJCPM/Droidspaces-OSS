@@ -1577,6 +1577,13 @@ int setup_parent_link_child_side(struct ds_config *cfg, const char *peer_name) {
     return ret;
   }
 
+  /* Enforce the configured IPv6 policy on the direct-L2 interface itself.
+   * all/default may already have the desired value, but a guest network
+   * manager can otherwise re-enable IPv6 while applying its link profile. */
+  if (write_file("/proc/sys/net/ipv6/conf/eth0/disable_ipv6",
+                 cfg->disable_ipv6 ? "1" : "0") < 0)
+    ds_warn("[NET] Child: failed to apply IPv6 policy on eth0");
+
   if (cfg->net_ipam == DS_NET_IPAM_STATIC) {
     char cidr[sizeof(cfg->net_address)];
     safe_strncpy(cidr, cfg->net_address, sizeof(cidr));

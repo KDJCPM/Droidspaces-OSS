@@ -214,6 +214,7 @@ IPv6AcceptRA=yes
 ClientIdentifier=duid
 UseDNS=yes
 UseDomains=yes
+RequestBroadcast=yes
 RouteMetric=100
 EOF
 
