@@ -19,6 +19,49 @@ static int ds_hex_value(unsigned char c) {
   return -1;
 }
 
+static int ds_file_contains_bytes(const char *path, const char *needle) {
+  unsigned char buffer[4096 + 64];
+  const size_t needle_len = strlen(needle);
+  size_t carry = 0;
+  int found = 0;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0 || needle_len == 0 || needle_len > 64) {
+    if (fd >= 0)
+      close(fd);
+    return 0;
+  }
+
+  for (;;) {
+    ssize_t n = read(fd, buffer + carry, sizeof(buffer) - carry);
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n <= 0)
+      break;
+
+    size_t total = carry + (size_t)n;
+    for (size_t i = 0; i + needle_len <= total; i++) {
+      if (memcmp(buffer + i, needle, needle_len) == 0) {
+        found = 1;
+        break;
+      }
+    }
+    if (found)
+      break;
+
+    carry = total < needle_len - 1 ? total : needle_len - 1;
+    memmove(buffer, buffer + total - carry, carry);
+  }
+
+  close(fd);
+  return found;
+}
+
+static int ds_networkd_supports_foreign_nexthops(void) {
+  static const char setting[] = "ManageForeignNextHops";
+  return ds_file_contains_bytes("usr/lib/systemd/systemd-networkd", setting) ||
+         ds_file_contains_bytes("lib/systemd/systemd-networkd", setting);
+}
+
 /* Build a stable DHCP identity for direct-L2 links.
  *
  * ipvlan shares its lower device's MAC, so ClientIdentifier=mac would make
@@ -31,7 +74,8 @@ static int ds_hex_value(unsigned char c) {
  * remain distinguishable without causing a fresh lease on every boot. */
 static void ds_build_direct_dhcp_identity(const struct ds_config *cfg,
                                           char duid_raw[48], uint32_t *iaid,
-                                          char dhcp_hostname[64]) {
+                                          char dhcp_hostname[64],
+                                          char ipv6_ra_token[46]) {
   uint8_t id[16] = {0};
   int valid_uuid = cfg->uuid[0] != '\0' && strlen(cfg->uuid) == DS_UUID_LEN;
 
@@ -67,6 +111,12 @@ static void ds_build_direct_dhcp_identity(const struct ds_config *cfg,
   snprintf(duid_raw, 48,
            "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:"
            "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
+           id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7], id[8],
+           id[9], id[10], id[11], id[12], id[13], id[14], id[15]);
+  snprintf(ipv6_ra_token, 46,
+           "prefixstable,"
+           "%02x%02x%02x%02x%02x%02x%02x%02x"
+           "%02x%02x%02x%02x%02x%02x%02x%02x",
            id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7], id[8],
            id[9], id[10], id[11], id[12], id[13], id[14], id[15]);
 
@@ -140,12 +190,31 @@ static void ds_write_guest_network_policy(const struct ds_config *cfg) {
 
   if (direct_dhcp) {
     mkdir("run/systemd/network", 0755);
+
+    /* systemd-networkd 257+ represents RA gateways as kernel nexthop objects.
+     * Android kernels commonly lack the nexthop netlink API (RTM_NEWNEXTHOP),
+     * which makes IPv6 RA fail with EOPNOTSUPP.  Keep the traditional direct
+     * gateway route representation when networkd advertises the compatibility
+     * setting; older releases remain untouched. */
+    if (cfg->net_mode == DS_NET_IPVLAN && !cfg->disable_ipv6 &&
+        ds_networkd_supports_foreign_nexthops()) {
+      mkdir("run/systemd/networkd.conf.d", 0755);
+      if (write_file("run/systemd/networkd.conf.d/"
+                     "zz-droidspaces-kernel-compat.conf",
+                     "[Network]\nManageForeignNextHops=no\n") < 0)
+        ds_warn("[NET] Cannot write systemd-networkd kernel compatibility "
+                "configuration");
+    }
+
     char network[2048];
     char duid_raw[48];
     char dhcp_hostname[64];
+    char ipv6_ra_token[46];
     char client_identity[256];
+    char ipv6_ra[128];
     uint32_t iaid;
-    ds_build_direct_dhcp_identity(cfg, duid_raw, &iaid, dhcp_hostname);
+    ds_build_direct_dhcp_identity(cfg, duid_raw, &iaid, dhcp_hostname,
+                                  ipv6_ra_token);
 
     if (cfg->net_mode == DS_NET_IPVLAN) {
       snprintf(client_identity, sizeof(client_identity),
@@ -163,9 +232,15 @@ static void ds_write_guest_network_policy(const struct ds_config *cfg) {
                                 ? "IPv6AcceptRA=no\nLinkLocalAddressing=no\n"
                                 : "IPv6AcceptRA=yes\n"
                                   "LinkLocalAddressing=ipv6\n";
-    const char *ipv6_ra = cfg->disable_ipv6
-                              ? ""
-                              : "\n[IPv6AcceptRA]\nUseDNS=yes\n";
+    if (cfg->disable_ipv6) {
+      ipv6_ra[0] = '\0';
+    } else if (cfg->net_mode == DS_NET_IPVLAN) {
+      snprintf(ipv6_ra, sizeof(ipv6_ra),
+               "\n[IPv6AcceptRA]\nToken=%s\nUseDNS=yes\n", ipv6_ra_token);
+    } else {
+      snprintf(ipv6_ra, sizeof(ipv6_ra),
+               "\n[IPv6AcceptRA]\nUseDNS=yes\n");
+    }
     snprintf(network, sizeof(network),
              "[Match]\n"
              "Name=eth0\n\n"
