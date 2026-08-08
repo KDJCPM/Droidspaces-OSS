@@ -486,6 +486,7 @@
     <string name="net_parent_auto">自动检测（活动上行）</string>
     <string name="net_parent_explain">留空时自动检测 Android 当前活动上行，也可明确指定父接口。</string>
     <string name="net_parent_error">请输入少于 16 个字符的 Linux 接口名。</string>
+    <string name="macvlan_wifi_4addr_warning">通过 Wi-Fi 使用 Macvlan 时，无线 AP 和手机 Wi-Fi 驱动/固件都必须支持并启用四地址（WDS）模式。Droidspaces 会尝试在所选手机接口上开启 4addr，但无法替你开启 AP 端。</string>
     <string name="net_mac">设备 MAC（可选）</string>
     <string name="net_mac_explain">留空则由内核选择；填写单播 MAC 可配合路由器固定租约。</string>
     <string name="net_mac_error">请输入有效的单播 MAC，例如 02:11:22:33:44:55。</string>

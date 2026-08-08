@@ -247,6 +247,7 @@
     <string name="net_parent_auto">Automatic (active uplink)</string>
     <string name="net_parent_explain">Leave blank to auto-detect the active Android uplink, or enter a parent interface explicitly.</string>
     <string name="net_parent_error">Enter a Linux interface name shorter than 16 characters.</string>
+    <string name="macvlan_wifi_4addr_warning">Macvlan over Wi-Fi requires both the access point and this phone’s Wi-Fi driver/firmware to support and enable 4-address (WDS) mode. Droidspaces will attempt to enable 4addr on the selected phone interface, but cannot enable it on the access point.</string>
     <string name="net_mac">Device MAC (optional)</string>
     <string name="net_mac_explain">Leave blank to let the kernel choose; enter a unicast MAC to keep a router reservation.</string>
     <string name="net_mac_error">Enter a valid unicast MAC such as 02:11:22:33:44:55.</string>

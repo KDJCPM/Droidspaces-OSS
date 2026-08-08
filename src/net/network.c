@@ -56,6 +56,23 @@ static void veth_peer_name(const struct ds_config *cfg, pid_t pid, char *buf,
   snprintf(buf, sz, "%s%d", p, (int)pid);
 }
 
+/* Android devices which expose nl80211 normally ship iw in /system/bin.
+ * Keep this optional: macvlan still works on Ethernet, while Wi-Fi also
+ * depends on driver/firmware and AP-side four-address/WDS support. */
+static int try_enable_wifi_4addr(char *ifname) {
+  static char *const iw_paths[] = {
+      "/system/bin/iw", "/vendor/bin/iw", "/usr/sbin/iw", "/usr/bin/iw"};
+
+  for (size_t i = 0; i < sizeof(iw_paths) / sizeof(iw_paths[0]); i++) {
+    if (access(iw_paths[i], X_OK) != 0)
+      continue;
+    char *const argv[] = {iw_paths[i], "dev", ifname, "set",
+                          "4addr", "on", NULL};
+    return run_command_log(argv);
+  }
+  return 127;
+}
+
 /* Derive a deterministic IP from a PID (avoids sequential collisions) */
 static void veth_peer_ip(pid_t pid, char *buf, size_t sz) {
   /* Multiplicative hash to spread sequential PIDs across the /16 subnet.
@@ -935,6 +952,27 @@ int setup_parent_link_host_side(struct ds_config *cfg, pid_t child_pid) {
   const char *kind = cfg->net_mode == DS_NET_IPVLAN ? "ipvlan" : "macvlan";
   char peer[IFNAMSIZ];
   veth_peer_name(cfg, child_pid, peer, sizeof(peer));
+
+  /* A Wi-Fi STA normally transports only its own source MAC.  macvlan needs
+   * 802.11 four-address/WDS operation so frames carrying the guest MAC can
+   * cross the wireless link.  This is best-effort: both the phone driver and
+   * AP must support/enable it, and some Android drivers reject the request.
+   * ipvlan shares the parent MAC and does not need this. */
+  if (cfg->net_mode == DS_NET_MACVLAN &&
+      strncmp(cfg->net_parent, "wlan", 4) == 0) {
+    int four_addr = try_enable_wifi_4addr(cfg->net_parent);
+    if (four_addr == 0)
+      ds_log("[NET] Enabled 4addr/WDS on Wi-Fi parent %s",
+             cfg->net_parent);
+    else if (four_addr == 127)
+      ds_warn("[NET] Could not enable 4addr/WDS on Wi-Fi parent %s: iw "
+              "is unavailable; macvlan traffic requires phone and AP support",
+              cfg->net_parent);
+    else
+      ds_warn("[NET] Could not enable 4addr/WDS on Wi-Fi parent %s (iw exit "
+              "%d); macvlan traffic requires phone and AP support",
+              cfg->net_parent, four_addr);
+  }
 
   ds_nl_ctx_t *ctx = ds_nl_open();
   if (!ctx)

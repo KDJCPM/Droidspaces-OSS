@@ -386,6 +386,25 @@ fun ContainerConfigForm(
                             }
                     }
                 }
+                if (state.netMode == "macvlan" && state.netParent.startsWith("wlan", ignoreCase = true)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = context.getString(R.string.macvlan_wifi_4addr_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                }
                 if (state.netMode == "macvlan") {
                     val macError = !state.isNetMacValid()
                     OutlinedTextField(
