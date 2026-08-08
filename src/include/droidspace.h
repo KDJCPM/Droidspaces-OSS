@@ -977,6 +977,7 @@ int is_dangerous_node(const char *name);
 int check_requirements(void);
 int check_requirements_hw(int hw_access);
 int check_requirements_detailed(void);
+int check_requirements_format(void);
 
 /* ---------------------------------------------------------------------------
  * daemon.c - daemon, client, and probe entry points

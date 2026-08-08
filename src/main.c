@@ -1220,7 +1220,8 @@ int main(int argc, char **argv) {
 
   /* Basic info commands */
   if (strcmp(cmd, "check") == 0) {
-    ret = check_requirements_detailed();
+    ret = cfg.format_output ? check_requirements_format()
+                            : check_requirements_detailed();
     goto cleanup;
   }
   if (strcmp(cmd, "version") == 0) {

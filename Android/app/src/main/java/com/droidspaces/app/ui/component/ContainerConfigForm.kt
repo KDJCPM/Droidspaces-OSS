@@ -126,6 +126,11 @@ fun ContainerConfigForm(
     var showHwAccessDialog by remember { mutableStateOf(false) }
     var parentInterfaceMenuExpanded by remember { mutableStateOf(false) }
     var availableParentInterfaces by remember { mutableStateOf<List<String>>(emptyList()) }
+    var directL2Capabilities by remember { mutableStateOf<com.droidspaces.app.util.DirectL2Capabilities?>(null) }
+
+    LaunchedEffect(Unit) {
+        directL2Capabilities = ContainerManager.getDirectL2Capabilities()
+    }
 
     LaunchedEffect(state.netMode) {
         if (state.netMode == "ipvlan" || state.netMode == "macvlan") {
@@ -284,7 +289,14 @@ fun ContainerConfigForm(
                 clearFocus()
                 onStateChange(state.copy(netMode = mode, disableIPv6 = if (mode == "nat" || mode == "none") true else state.disableIPv6))
             },
-            leadingIcon = Icons.Default.Public
+            leadingIcon = Icons.Default.Public,
+            isOptionEnabled = { mode ->
+                when (mode) {
+                    "ipvlan" -> directL2Capabilities?.ipvlanSupported == true
+                    "macvlan" -> directL2Capabilities?.macvlanSupported == true
+                    else -> true
+                }
+            }
         )
 
         GatewaySettingsSection(

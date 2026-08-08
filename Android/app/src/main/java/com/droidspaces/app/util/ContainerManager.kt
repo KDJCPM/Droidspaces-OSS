@@ -25,6 +25,11 @@ data class PortForward(
     val proto: String = "tcp"
 )
 
+data class DirectL2Capabilities(
+    val ipvlanSupported: Boolean = false,
+    val macvlanSupported: Boolean = false
+)
+
 data class ContainerInfo(
     val name: String,
     val hostname: String,
@@ -474,6 +479,24 @@ object ContainerManager {
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /** Query live kernel support using the backend's temporary Netlink probes. */
+    suspend fun getDirectL2Capabilities(): DirectL2Capabilities = withContext(Dispatchers.IO) {
+        try {
+            val result = Shell.cmd("\"${Constants.DROIDSPACES_BINARY_PATH}\" --format check 2>/dev/null").exec()
+            if (!result.isSuccess) return@withContext DirectL2Capabilities()
+            val values = result.out.mapNotNull { line ->
+                val parts = line.trim().split("=", limit = 2)
+                if (parts.size == 2) parts[0] to parts[1] else null
+            }.toMap()
+            DirectL2Capabilities(
+                ipvlanSupported = values["CONFIG_IPVLAN"] == "1",
+                macvlanSupported = values["CONFIG_MACVLAN"] == "1"
+            )
+        } catch (_: Exception) {
+            DirectL2Capabilities()
         }
     }
 
