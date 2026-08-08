@@ -386,7 +386,7 @@ fun ContainerConfigForm(
                             }
                     }
                 }
-                if (state.netMode == "macvlan" && state.netParent.startsWith("wlan", ignoreCase = true)) {
+                if (state.netMode == "macvlan") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
