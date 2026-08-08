@@ -515,4 +515,33 @@
     <string name="accent_color">强调色</string>
     <string name="type_container_name_to_confirm">完整输入容器名称以确认：</string>
     <string name="debugging_section">调试</string>
+    <string name="systemctl_status_section">systemctl 状态</string>
+    <string name="inspect_unit">检查单元</string>
+    <string name="edit_override">编辑覆盖配置</string>
+    <string name="property_description">描述</string>
+    <string name="property_load_state">加载状态</string>
+    <string name="property_active_state">活动状态</string>
+    <string name="property_sub_state">子状态</string>
+    <string name="property_enablement">启用状态</string>
+    <string name="property_unit_file">单元文件</string>
+    <string name="property_drop_ins">Drop-in 配置文件</string>
+    <string name="property_main_pid">主 PID</string>
+    <string name="property_started_at">启动时间</string>
+    <string name="property_restart_policy">重启策略</string>
+    <string name="property_memory">内存</string>
+    <string name="property_cpu_time">CPU 时间 (纳秒)</string>
+    <string name="unit_detail_load_error_title">无法加载单元详细信息</string>
+    <string name="unit_detail_load_error_message">单元可能已不存在，或容器当前无法访问。</string>
+    <string name="properties_section">属性</string>
+    <string name="dependencies_section">依赖关系</string>
+    <string name="override_saved">覆盖配置已保存，重启单元以应用更改。</string>
+    <string name="failed_to_save_override">保存覆盖配置失败</string>
+    <string name="override_removed">覆盖配置已删除。</string>
+    <string name="failed_to_remove_override">删除覆盖配置失败</string>
+    <string name="edit_override_title">编辑覆盖配置 · %1$s</string>
+    <string name="delete_override">删除覆盖配置</string>
+    <string name="save_override">保存覆盖配置</string>
+    <string name="override_placeholder">[Service]\nEnvironment=FOO=bar</string>
+    <string name="saving_override">正在保存覆盖配置…</string>
+    <string name="applying_override">正在应用覆盖配置…</string>
 </resources>
