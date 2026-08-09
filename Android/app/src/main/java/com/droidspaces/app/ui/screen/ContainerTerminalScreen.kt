@@ -327,9 +327,10 @@ private fun TerminalTabView(
         PreferencesManager.getInstance(context).terminalDarkTheme
     }
     // Termux TerminalColors indices: 256 = default foreground, 257 = background,
-    // 258 = cursor.
-    val terminalForeground = if (terminalDarkTheme) Color(0xFFE2E2E6).toArgb() else MaterialTheme.colorScheme.onSurface.toArgb()
-    val terminalBackground = if (terminalDarkTheme) Color(0xFF121212).toArgb() else MaterialTheme.colorScheme.surface.toArgb()
+    // 258 = cursor. Dark mode uses the classic termux white-on-black scheme:
+    // pure white foreground on pure black background.
+    val terminalForeground = if (terminalDarkTheme) Color.WHITE.toArgb() else MaterialTheme.colorScheme.onSurface.toArgb()
+    val terminalBackground = if (terminalDarkTheme) Color.BLACK.toArgb() else MaterialTheme.colorScheme.surface.toArgb()
     val virtualKeysBackground = if (terminalDarkTheme) Color(0xFF1A1A1E) else MaterialTheme.colorScheme.surfaceContainerHighest
 
     AnimatedVisibility(
