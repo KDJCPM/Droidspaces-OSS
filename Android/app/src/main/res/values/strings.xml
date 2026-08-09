@@ -82,6 +82,8 @@
     <string name="follow_system_theme_description">Automatically match system theme</string>
     <string name="dark_theme">Dark Theme</string>
     <string name="dark_theme_description">Enable dark theme</string>
+    <string name="terminal_dark_theme">Terminal Dark Mode</string>
+    <string name="terminal_dark_theme_description">Use dark colors for the terminal page only</string>
     <string name="amoled_mode">AMOLED Mode</string>
     <string name="amoled_mode_description">Pure black background for OLED displays</string>
     <string name="dynamic_color">Apply System\'s Default Color Palette</string>
