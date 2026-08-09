@@ -348,6 +348,9 @@ private fun TerminalTabView(
                         setTypeface(terminalTypeface) // JetBrains Mono; null = system default
                         keepScreenOn = true
                         isFocusableInTouchMode = true
+                        // The renderer only paints cell backgrounds; the full-screen
+                        // default background comes from the View itself.
+                        setBackgroundColor(terminalBackground)
 
                         if (activity != null) {
                             val client = TerminalBackEnd(
