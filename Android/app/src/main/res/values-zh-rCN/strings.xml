@@ -69,6 +69,8 @@
     <string name="follow_system_theme_description">自动跟随系统主题</string>
     <string name="dark_theme">深色模式</string>
     <string name="dark_theme_description">开启深色模式</string>
+    <string name="terminal_dark_theme">终端深色模式</string>
+    <string name="terminal_dark_theme_description">仅终端页面使用深色配色</string>
     <string name="amoled_mode">AMOLED 模式</string>
     <string name="amoled_mode_description">为 OLED 屏幕提供纯黑背景</string>
     <string name="dynamic_color">使用系统默认配色方案</string>

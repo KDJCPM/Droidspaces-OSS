@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -486,10 +487,10 @@ private fun RootfsAssetCard(
                         progress = { state.percent / 100f },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
+                            .height(4.dp),
                         color = MaterialTheme.colorScheme.tertiary, // Match state pill
-                        trackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                        trackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                        strokeCap = StrokeCap.Round
                     )
                     Text(
                         text = "${state.percent}%",
