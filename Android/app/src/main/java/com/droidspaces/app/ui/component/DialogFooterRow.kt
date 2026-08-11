@@ -32,7 +32,7 @@ fun DialogFooterRow(
     confirmLabel: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
-    modifier: Modifier = Modifier.padding(vertical = 4.dp),
+    modifier: Modifier = Modifier.padding(horizontal = 4.dp),
     confirmEnabled: Boolean = true,
     cancelBorderAlpha: Float = 0.4f,
     textFontWeight: FontWeight = FontWeight.SemiBold,

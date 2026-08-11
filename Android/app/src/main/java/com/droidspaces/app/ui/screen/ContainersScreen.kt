@@ -85,7 +85,6 @@ fun ContainersScreen(
 
     // UI-only state (dialog triggers / pending pickers).
     var showUninstallConfirmation by remember { mutableStateOf<ContainerInfo?>(null) }
-    var showStopConfirmationFor by remember { mutableStateOf<ContainerInfo?>(null) }
     var pendingSparseOperation by remember { mutableStateOf<SparseOperation?>(null) }
     var pendingExportContainer by remember { mutableStateOf<ContainerInfo?>(null) }
     var showRepoSheet by remember { mutableStateOf(false) }
@@ -200,8 +199,15 @@ fun ContainersScreen(
                                 }
                             },
                             onStop = {
-                                 showStopConfirmationFor = container
-                             },
+                                scope.launch {
+                                    opsViewModel.executeOperation(
+                                        container, "stop",
+                                        onRefresh = { containerViewModel.refresh() },
+                                        onClearUsage = { systemStatsViewModel.clearContainerUsage(it) },
+                                        onFailureSnackbar = { msg -> scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long) } }
+                                    )
+                                }
+                            },
                             onRestart = {
                                 scope.launch {
                                     opsViewModel.executeOperation(
@@ -358,27 +364,6 @@ fun ContainersScreen(
                 },
                 onDismiss = {
                     showUninstallConfirmation = null
-                }
-            )
-        }
-
-        // Stop confirmation dialog
-        showStopConfirmationFor?.let { container ->
-            StopContainerConfirmationDialog(
-                containerName = container.name,
-                onConfirm = {
-                    showStopConfirmationFor = null
-                    scope.launch {
-                        opsViewModel.executeOperation(
-                            container, "stop",
-                            onRefresh = { containerViewModel.refresh() },
-                            onClearUsage = { systemStatsViewModel.clearContainerUsage(it) },
-                            onFailureSnackbar = { msg -> scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long) } }
-                        )
-                    }
-                },
-                onDismiss = {
-                    showStopConfirmationFor = null
                 }
             )
         }
@@ -576,60 +561,3 @@ private fun UninstallConfirmationDialog(
     }
 }
 
-@Composable
-private fun StopContainerConfirmationDialog(
-    containerName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val dialogShape = RoundedCornerShape(24.dp)
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight(),
-            shape = dialogShape,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
-            tonalElevation = 0.dp
-        ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "Stop Container?",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "Are you sure you want to stop the container \"$containerName\"?",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                DialogFooterRow(
-                    dismissLabel = context.getString(android.R.string.no),
-                    confirmLabel = context.getString(android.R.string.yes),
-                    onDismiss = onDismiss,
-                    onConfirm = onConfirm,
-                    confirmEnabled = true,
-                    confirmColor = MaterialTheme.colorScheme.error,
-                    confirmContentColor = MaterialTheme.colorScheme.onError
-                )
-            }
-        }
-    }
-}
