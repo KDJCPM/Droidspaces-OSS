@@ -103,7 +103,7 @@ fun ContainerNameScreen(
         bottomBar = {
             val isNextValid = containerName.isNotBlank() && nameError == null && hostnameError == null
             PrimaryActionBottomBar(
-                label = context.getString(R.string.next_configuration),
+                label = context.getString(R.string.next_storage),
                 icon = Icons.AutoMirrored.Filled.ArrowForward,
                 onClick = {
                     clearFocus()

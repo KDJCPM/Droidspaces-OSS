@@ -338,6 +338,10 @@
     <string name="configuration_title">Configuration</string>
     <string name="container_options">Container Options</string>
     <string name="next_storage">Next: Storage</string>
+    <string name="next_summary">Next: Summary</string>
+    <string name="config_override_title">Configuration (Override)</string>
+    <string name="config_override_banner_title">Configuration Override</string>
+    <string name="config_override_banner_desc">This image contains its own saved container configuration. The settings below have been imported from the image. Any changes you make here will override the image configuration for this container on this device.</string>
 
     <!-- Installation Screen -->
     <string name="installing_container">Installing Container</string>
@@ -510,6 +514,40 @@
     <string name="maximum_size_512gb">Maximum size is 512 GB</string>
     <string name="size_gb">Size (GB)</string>
     <string name="enter_size_between_4_512_gb">Enter size between 4 and 512 GB</string>
+
+    <!-- Existing Image & Portability -->
+    <string name="storage_mode_new_image">New Sparse Image</string>
+    <string name="storage_mode_new_image_desc">Create a fresh ext4 image file and extract rootfs into it</string>
+    <string name="storage_mode_existing_image">Existing Image (.img)</string>
+    <string name="storage_mode_existing_image_desc">Use an existing rootfs image (USB/SD or internal) with portable config</string>
+    <string name="storage_mode_directory">Directory Mode</string>
+    <string name="storage_mode_directory_desc">Extract rootfs into a folder (not recommended for removable drives)</string>
+    <string name="existing_image_path">Existing Image File</string>
+    <string name="existing_image_path_hint">Select or enter .img path</string>
+    <string name="browse_existing_image">Browse Image (.img)</string>
+    <string name="inspecting_image">Inspecting image...</string>
+    <string name="valid_ext4_image">Valid ext4 Rootfs Image</string>
+    <string name="embedded_config_found">Embedded Configuration Found</string>
+    <string name="embedded_config_desc">This image contains self-describing container configuration. Apply it to prefill container settings.</string>
+    <string name="apply_embedded_config">Apply saved container configuration</string>
+    <string name="image_size_info">Image Size: %1$d GB (%2$s)</string>
+    <string name="os_detected">Distribution: %1$s</string>
+    <string name="invalid_existing_image">Please select a valid existing ext4 .img file</string>
+    <string name="existing_image_label">Source Image</string>
+    <string name="existing_path_label">Existing Path</string>
+    <string name="install_mode_existing">Import existing image (portable)</string>
+
+    <!-- Filesystem Capability & Dangerous Territory -->
+    <string name="fs_compat_checking">Checking filesystem capabilities...</string>
+    <string name="fs_compat_title">Filesystem Compatibility</string>
+    <string name="fs_compat_valid_title">Filesystem Compatible (POSIX Native)</string>
+    <string name="fs_compat_invalid_title">Incompatible Filesystem for Directory Mode</string>
+    <string name="fs_compat_external_force_sparse_msg">External storage volumes (SD card / USB-OTG) require a Sparse Image (.img) because FAT32, exFAT, and NTFS do not support Linux user permissions, ownership, or symbolic links.</string>
+    <string name="fs_compat_switch_sparse">Switch to Sparse Image (Recommended)</string>
+    <string name="fs_compat_bypass_dialog_title">DANGEROUS TERRITORY</string>
+    <string name="fs_compat_dangerous_desc">Forcing directory-based containers on a non-native filesystem (%1$s) will cause critical system failure:\n\n• Broken symlinks: Core binaries (/bin/sh, libc, systemd) will not work\n• Missing permission isolation: Multi-user security and /etc/shadow will be compromised\n• Package managers (apt/apk) will fail during installs\n• Data corruption will occur\n\nDo NOT report issues occurred while using Directory mode on external/non-native storage.</string>
+    <string name="fs_compat_bypass_button">Bypass Checks (Dangerous)</string>
+    <string name="fs_compat_bypassed_tag">CHECKS BYPASSED (DANGEROUS)</string>
 
     <!-- Container Log Viewer -->
     <string name="logs_title">Logs: %1$s</string>

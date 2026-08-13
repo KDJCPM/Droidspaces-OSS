@@ -34,6 +34,8 @@ import androidx.compose.ui.res.stringResource
 fun InstallationSummaryScreen(
     config: ContainerInfo,
     tarballName: String,
+    isExistingImage: Boolean = false,
+    existingImagePath: String? = null,
     onInstall: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -88,7 +90,19 @@ fun InstallationSummaryScreen(
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SummaryItem(stringResource(R.string.tarball_label), tarballName, Icons.Default.Archive)
+                    if (isExistingImage) {
+                        val imgDisplay = existingImagePath?.substringAfterLast("/") ?: tarballName
+                        SummaryItem(stringResource(R.string.existing_image_label), imgDisplay, Icons.Default.SdCard)
+                        SummaryItem(stringResource(R.string.storage_configuration), stringResource(R.string.install_mode_existing), Icons.Default.MoveToInbox)
+                    } else {
+                        SummaryItem(stringResource(R.string.tarball_label), tarballName, Icons.Default.Archive)
+                        if (config.useSparseImage && config.sparseImageSizeGB != null) {
+                            SummaryItem(stringResource(R.string.storage_configuration), "${stringResource(R.string.sparse_image_configuration)} (${config.sparseImageSizeGB}GB)", Icons.Default.Storage)
+                        } else {
+                            SummaryItem(stringResource(R.string.storage_configuration), stringResource(R.string.directory_label), Icons.Default.Folder)
+                        }
+                    }
+
                     SummaryItem(stringResource(R.string.container_singular), config.name, Icons.Default.Storage)
                     SummaryItem(stringResource(R.string.hostname), config.hostname, Icons.Default.Computer)
                     SummaryItem(
@@ -99,12 +113,28 @@ fun InstallationSummaryScreen(
                     if (config.netMode == "nat" && config.staticNatIp.isNotEmpty()) {
                         SummaryItem(stringResource(R.string.static_ip_address), config.staticNatIp, Icons.Default.NetworkCheck)
                     }
-                    if (config.useSparseImage && config.sparseImageSizeGB != null) {
-                        SummaryItem(stringResource(R.string.storage_configuration), "${stringResource(R.string.sparse_image_configuration)} (${config.sparseImageSizeGB}GB)", Icons.Default.Storage)
+
+                    // Reflect the actual chosen rootfs location
+                    if (isExistingImage) {
+                        val fullPath = existingImagePath ?: config.rootfsPath
+                        SummaryItem(
+                            stringResource(R.string.existing_path_label),
+                            fullPath,
+                            Icons.Default.SdCard
+                        )
                     } else {
-                        SummaryItem(stringResource(R.string.storage_configuration), stringResource(R.string.directory_label), Icons.Default.Folder)
+                        val rootfsParentDir = config.rootfsPath.substringBeforeLast("/", "")
+                        val defaultContainerDir = "${Constants.CONTAINERS_BASE_PATH}/${com.droidspaces.app.util.ContainerManager.sanitizeContainerName(config.name)}"
+                        val isExternalStorage = rootfsParentDir.isNotEmpty() && rootfsParentDir != defaultContainerDir
+                        SummaryItem(
+                            stringResource(R.string.installation_path_label),
+                            if (isExternalStorage) rootfsParentDir else defaultContainerDir,
+                            Icons.Default.Folder
+                        )
+                        if (isExternalStorage) {
+                            SummaryItem("Storage type", "External / custom location", Icons.Default.Usb)
+                        }
                     }
-                    SummaryItem(stringResource(R.string.installation_path_label), "${Constants.CONTAINERS_BASE_PATH}/${com.droidspaces.app.util.ContainerManager.sanitizeContainerName(config.name)}", Icons.Default.Folder)
 
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 8.dp),

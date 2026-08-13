@@ -29,6 +29,7 @@ import com.droidspaces.app.ui.screen.AutoBootPriorityScreen
 import com.droidspaces.app.ui.screen.WelcomeScreen
 import com.droidspaces.app.ui.screen.ContainerNameScreen
 import com.droidspaces.app.ui.screen.SparseImageConfigScreen
+import com.droidspaces.app.ui.screen.StorageLocationScreen
 import com.droidspaces.app.ui.screen.ContainerConfigScreen
 import com.droidspaces.app.ui.screen.InstallationSummaryScreen
 import com.droidspaces.app.ui.screen.InstallationProgressScreen
@@ -44,6 +45,7 @@ import com.droidspaces.app.ui.viewmodel.ContainerInstallationViewModel
 import com.droidspaces.app.ui.viewmodel.ContainerViewModel
 import com.droidspaces.app.util.ContainerManager
 import com.droidspaces.app.util.FilePickerUtils
+import com.droidspaces.app.util.SafPathResolver
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,6 +82,7 @@ sealed class Screen(val route: String) {
         fun createRoute(tarballUri: String) = "container_name/${Uri.encode(tarballUri)}"
     }
     data object SparseImageConfig : Screen("sparse_image_config")
+    data object StorageLocation : Screen("storage_location")
     data object ContainerConfig : Screen("container_config")
     data object InstallationSummary : Screen("installation_summary")
     data object InstallationProgress : Screen("installation_progress")
@@ -333,9 +336,20 @@ fun DroidspacesNavigation(
             val viewModel: ContainerInstallationViewModel = viewModel(backStackEntry)
             val tarballUriString = backStackEntry.arguments?.getString("tarballUri") ?: ""
             val tarballUri = Uri.parse(tarballUriString)
+            val ctx = LocalContext.current
 
             LaunchedEffect(tarballUri) {
                 viewModel.setTarball(tarballUri)
+                // Check if the picked file is already an ext4 .img file
+                val fileName = FilePickerUtils.getFileName(ctx, tarballUri)?.lowercase() ?: ""
+                if (fileName.endsWith(".img")) {
+                    val resolved = SafPathResolver.resolvePathFromUri(ctx, tarballUri) ?: SafPathResolver.normalizePath(tarballUri.path ?: "")
+                    if (!resolved.isNullOrBlank()) {
+                        viewModel.updateImageSourceMode(com.droidspaces.app.ui.viewmodel.ImageSourceMode.EXISTING_SPARSE_IMAGE)
+                        viewModel.setExistingImage(resolved)
+                        viewModel.inspectImage(ctx, resolved)
+                    }
+                }
             }
 
             ContainerNameScreen(
@@ -344,30 +358,9 @@ fun DroidspacesNavigation(
                 existingContainerNames = sharedContainerViewModel.containerList.map { it.name },
                 onNext = { name, hostname ->
                     viewModel.setName(name, hostname)
-                    navController.navigate(Screen.ContainerConfig.route)
-                },
-                onClose = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        composable(
-            route = Screen.ContainerConfig.route,
-            enterTransition = defaultEnterTransition,
-            exitTransition = defaultExitTransition
-        ) { backStackEntry ->
-            val viewModel = wizardScopedViewModel(navController, backStackEntry)
-
-            ContainerConfigScreen(
-                initialState = viewModel.configState,
-                containerName = viewModel.containerName,
-                installedContainers = sharedContainerViewModel.containerList,
-                onNext = { state ->
-                    viewModel.setConfig(state)
                     navController.navigate(Screen.SparseImageConfig.route)
                 },
-                onBack = {
+                onClose = {
                     navController.popBackStack()
                 }
             )
@@ -379,12 +372,92 @@ fun DroidspacesNavigation(
             exitTransition = defaultExitTransition
         ) { backStackEntry ->
             val viewModel = wizardScopedViewModel(navController, backStackEntry)
+            val ctx = LocalContext.current
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
 
             SparseImageConfigScreen(
-                initialUseSparseImage = viewModel.useSparseImage,
+                initialMode = viewModel.imageSourceMode,
                 initialSizeGB = viewModel.sparseImageSizeGB,
-                onNext = { useSparseImage, sizeGB ->
-                    viewModel.setSparseImageConfig(useSparseImage, sizeGB)
+                initialExistingImagePath = viewModel.existingImagePath,
+                initialInspection = viewModel.existingImageInspection,
+                isInspecting = viewModel.isInspectingImage,
+                useEmbeddedConfig = viewModel.useEmbeddedConfig,
+                onModeChange = { mode ->
+                    viewModel.updateImageSourceMode(mode)
+                },
+                onInspectImage = { path ->
+                    scope.launch {
+                        viewModel.setExistingImage(path, null)
+                        viewModel.inspectImage(ctx, path)
+                    }
+                },
+                onApplyImportedConfig = { apply ->
+                    viewModel.applyImportedConfig(apply)
+                },
+                onNext = { mode, sizeGB, existingPath ->
+                    viewModel.updateImageSourceMode(mode)
+                    if (mode == com.droidspaces.app.ui.viewmodel.ImageSourceMode.EXISTING_SPARSE_IMAGE) {
+                        viewModel.setExistingImage(existingPath, viewModel.existingImageInspection)
+                        // If existing image is on external path, save its parent dir
+                        if (!existingPath.isNullOrBlank() && (existingPath.startsWith("/storage/") || existingPath.startsWith("/mnt/media_rw/"))) {
+                            val parentDir = existingPath.substringBeforeLast("/")
+                            viewModel.setStorageLocation(parentDir)
+                        }
+                        // Existing image is already its own storage location - skip StorageLocationScreen
+                        navController.navigate(Screen.ContainerConfig.route)
+                    } else {
+                        if (mode == com.droidspaces.app.ui.viewmodel.ImageSourceMode.NEW_SPARSE_IMAGE) {
+                            viewModel.setSparseImageConfig(true, sizeGB)
+                        } else {
+                            viewModel.setSparseImageConfig(false, 8)
+                        }
+                        navController.navigate(Screen.StorageLocation.route)
+                    }
+                },
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Screen.StorageLocation.route,
+            enterTransition = defaultEnterTransition,
+            exitTransition = defaultExitTransition
+        ) { backStackEntry ->
+            val viewModel = wizardScopedViewModel(navController, backStackEntry)
+
+            StorageLocationScreen(
+                initialPath = viewModel.customStorageLocation,
+                useSparseImage = viewModel.useSparseImage,
+                onSwitchToSparseImage = {
+                    viewModel.setSparseImageConfig(true, 8)
+                },
+                onNext = { path ->
+                    viewModel.setStorageLocation(path)
+                    navController.navigate(Screen.ContainerConfig.route)
+                },
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Screen.ContainerConfig.route,
+            enterTransition = defaultEnterTransition,
+            exitTransition = defaultExitTransition
+        ) { backStackEntry ->
+            val viewModel = wizardScopedViewModel(navController, backStackEntry)
+            val isOverride = viewModel.isExistingImage && (viewModel.importedImageConfig != null || viewModel.existingImageInspection?.embeddedConfig != null)
+
+            ContainerConfigScreen(
+                initialState = viewModel.configState,
+                containerName = viewModel.containerName,
+                installedContainers = sharedContainerViewModel.containerList,
+                isOverrideMode = isOverride,
+                onNext = { state ->
+                    viewModel.setConfig(state)
                     navController.navigate(Screen.InstallationSummary.route)
                 },
                 onBack = {
@@ -401,18 +474,23 @@ fun DroidspacesNavigation(
             val viewModel = wizardScopedViewModel(navController, backStackEntry)
             val config = viewModel.buildConfig()
             val tarballUri = viewModel.tarballUri
+            val isExisting = viewModel.isExistingImage
+            val existingPath = viewModel.existingImagePath
             val ctx = LocalContext.current
 
-            if (config != null && tarballUri != null) {
-                // Extract filename from URI using FilePickerUtils (handles recent files properly)
-                var tarballName by remember { mutableStateOf<String?>(null) }
+            if (config != null && (isExisting || tarballUri != null)) {
+                var displayName by remember { mutableStateOf<String?>(null) }
 
-                LaunchedEffect(tarballUri) {
-                    tarballName = FilePickerUtils.getFileName(ctx, tarballUri) ?: "container.tar.gz"
+                LaunchedEffect(tarballUri, isExisting, existingPath) {
+                    if (isExisting) {
+                        displayName = existingPath?.substringAfterLast("/") ?: "rootfs.img"
+                    } else if (tarballUri != null) {
+                        displayName = FilePickerUtils.getFileName(ctx, tarballUri) ?: "container.tar.gz"
+                    }
                 }
 
                 // Show loading while extracting filename
-                if (tarballName == null) {
+                if (displayName == null) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -422,7 +500,9 @@ fun DroidspacesNavigation(
                 } else {
                     InstallationSummaryScreen(
                         config = config,
-                        tarballName = tarballName!!,
+                        tarballName = displayName!!,
+                        isExistingImage = isExisting,
+                        existingImagePath = existingPath,
                         onInstall = {
                             navController.navigate(Screen.InstallationProgress.route)
                         },
@@ -447,10 +527,13 @@ fun DroidspacesNavigation(
             val viewModel = wizardScopedViewModel(navController, backStackEntry)
             val config = viewModel.buildConfig()
             val tarballUri = viewModel.tarballUri
+            val isExisting = viewModel.isExistingImage
+            val existingPath = viewModel.existingImagePath
 
-            if (config != null && tarballUri != null) {
+            if (config != null && (isExisting || tarballUri != null)) {
                 InstallationProgressScreen(
                     tarballUri = tarballUri,
+                    existingImagePath = if (isExisting) existingPath else null,
                     config = config,
                     onSuccess = {
                         viewModel.reset()

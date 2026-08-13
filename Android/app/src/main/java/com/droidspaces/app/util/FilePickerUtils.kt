@@ -90,11 +90,11 @@ object FilePickerUtils {
     }
 
     /**
-     * Check if a URI points to a valid tar.xz or tar.gz file.
+     * Check if a URI points to a valid tar.xz, tar.gz, or sparse .img file.
      *
      * @param context The context to use for ContentResolver
      * @param uri The URI to check
-     * @return Pair of (isValid, fileName) where isValid is true if the file is a tar.xz or tar.gz
+     * @return Pair of (isValid, fileName) where isValid is true if the file is a supported archive or image
      */
     suspend fun isValidTarball(context: Context, uri: Uri): Pair<Boolean, String?> {
         val fileName = getFileName(context, uri)
@@ -103,9 +103,18 @@ object FilePickerUtils {
         }
 
         val fileNameLower = fileName.lowercase()
-        val isValid = fileNameLower.endsWith(".tar.xz") || fileNameLower.endsWith(".tar.gz")
+        val isValid = fileNameLower.endsWith(".tar.xz") ||
+                fileNameLower.endsWith(".tar.gz") ||
+                fileNameLower.endsWith(".tar") ||
+                fileNameLower.endsWith(".img")
 
         return Pair(isValid, fileName)
+    }
+
+    /** Returns true if the URI points to an ext4 / sparse .img file. */
+    suspend fun isImageFile(context: Context, uri: Uri): Boolean {
+        val fileName = getFileName(context, uri) ?: return false
+        return fileName.lowercase().endsWith(".img")
     }
 }
 

@@ -37,7 +37,8 @@ enum class InstallationState {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstallationProgressScreen(
-    tarballUri: Uri,
+    tarballUri: Uri? = null,
+    existingImagePath: String? = null,
     config: ContainerInfo,
     onSuccess: () -> Unit,
     onError: () -> Unit
@@ -73,15 +74,27 @@ fun InstallationProgressScreen(
             logger.i("Starting container installation...")
             logger.i("Container: ${config.name}")
             logger.i("Hostname: ${config.hostname}")
-            val tarballName = FilePickerUtils.getFileName(context, tarballUri) ?: tarballUri.toString()
-            logger.i("Tarball: $tarballName")
 
-            val result = ContainerInstaller.installContainer(
-                context = context,
-                tarballUri = tarballUri,
-                config = config,
-                logger = logger
-            )
+            val result = if (!existingImagePath.isNullOrBlank()) {
+                logger.i("Source: Existing Image (${existingImagePath.substringAfterLast("/")})")
+                ContainerInstaller.installFromExistingImage(
+                    context = context,
+                    config = config,
+                    existingImagePath = existingImagePath,
+                    logger = logger
+                )
+            } else if (tarballUri != null) {
+                val tarballName = FilePickerUtils.getFileName(context, tarballUri) ?: tarballUri.toString()
+                logger.i("Tarball: $tarballName")
+                ContainerInstaller.installContainer(
+                    context = context,
+                    tarballUri = tarballUri,
+                    config = config,
+                    logger = logger
+                )
+            } else {
+                Result.failure(Exception("No tarball or existing image provided"))
+            }
 
             installationState = if (result.isSuccess) {
                 logger.i("Installation completed successfully!")

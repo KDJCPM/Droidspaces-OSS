@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +52,7 @@ fun ContainerConfigScreen(
     initialState: ContainerConfigState = ContainerConfigState(),
     containerName: String = "",
     installedContainers: List<ContainerInfo> = emptyList(),
+    isOverrideMode: Boolean = false,
     onNext: (ContainerConfigState) -> Unit,
     onBack: () -> Unit
 ) {
@@ -77,7 +79,12 @@ fun ContainerConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(context.getString(R.string.configuration_title)) },
+                title = {
+                    Text(
+                        if (isOverrideMode) context.getString(R.string.config_override_title)
+                        else context.getString(R.string.configuration_title)
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = context.getString(R.string.back))
@@ -125,7 +132,7 @@ fun ContainerConfigScreen(
                                     tint = if (canProceed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 )
                                 Text(
-                                    context.getString(R.string.next_storage),
+                                    context.getString(R.string.next_summary),
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (canProceed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -152,11 +159,52 @@ fun ContainerConfigScreen(
                 collisionContainer = collisionContainer,
                 modifier = Modifier.fillMaxSize(),
                 leadingContent = {
-                    Text(
-                        text = context.getString(R.string.container_options),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        if (isOverrideMode) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = context.getString(R.string.config_override_banner_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = context.getString(R.string.config_override_banner_desc),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Text(
+                            text = if (isOverrideMode) "Override Settings" else context.getString(R.string.container_options),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             )
         }

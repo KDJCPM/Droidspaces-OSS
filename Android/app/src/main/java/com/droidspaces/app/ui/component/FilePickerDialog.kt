@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import com.droidspaces.app.util.ContainerCommandBuilder
+import com.droidspaces.app.util.RootNamespace
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
@@ -130,7 +131,11 @@ fun FilePickerDialog(
             }
             if (targetDir != currentPath && targetDir.isNotEmpty()) {
                 val exists = withContext(Dispatchers.IO) {
-                    val result = Shell.cmd("[ -d ${ContainerCommandBuilder.quote(targetDir)} ] && echo yes").exec()
+                    val result = RootNamespace.exec(
+                        "[ -d ${ContainerCommandBuilder.quote(targetDir)} ] && echo yes",
+                        targetPath = targetDir,
+                        forceNsenter = targetDir.startsWith("/storage")
+                    )
                     result.isSuccess && result.out.firstOrNull() == "yes"
                 }
                 if (exists) {
@@ -352,7 +357,11 @@ private fun FileItemRow(
 }
 
 private suspend fun fetchItems(path: String, showFiles: Boolean): List<FileItem> = withContext(Dispatchers.IO) {
-    val result = Shell.cmd("ls -F ${ContainerCommandBuilder.quote(path)} 2>/dev/null").exec()
+    val result = RootNamespace.exec(
+        "ls -F ${ContainerCommandBuilder.quote(path)} 2>/dev/null",
+        targetPath = path,
+        forceNsenter = path.startsWith("/storage")
+    )
     if (!result.isSuccess) return@withContext emptyList()
 
     result.out.mapNotNull { line ->
