@@ -32,6 +32,12 @@ sealed class UninstallState {
     data class InProgress(val containerName: String, val message: String) : UninstallState()
 }
 
+/** Progress state for the move-storage flow (drives the ProgressDialog). */
+sealed class MoveStorageState {
+    data object Idle : MoveStorageState()
+    data class InProgress(val containerName: String, val message: String) : MoveStorageState()
+}
+
 /** A pending sparse-image operation awaiting a size from the user. */
 sealed class SparseOperation {
     data class Migrate(val container: ContainerInfo) : SparseOperation()
@@ -74,6 +80,15 @@ class ContainerOperationsViewModel(app: Application) : AndroidViewModel(app) {
     var uninstallLogsDialog by mutableStateOf<List<String>?>(null)
 
     fun dismissUninstallLogs() { uninstallLogsDialog = null }
+
+    /** Move-storage progress. */
+    var moveStorageState by mutableStateOf<MoveStorageState>(MoveStorageState.Idle)
+        private set
+
+    /** Non-null when a move-storage attempt failed and its logs should be shown. */
+    var moveStorageLogsDialog by mutableStateOf<List<String>?>(null)
+
+    fun dismissMoveStorageLogs() { moveStorageLogsDialog = null }
 
     /** Get-or-create the streaming log buffer for [name] (matches the previous inline pattern). */
     private fun logsFor(name: String): SnapshotStateList<Pair<Int, String>> {
@@ -139,7 +154,7 @@ class ContainerOperationsViewModel(app: Application) : AndroidViewModel(app) {
             tempArchive = File("${appContext.cacheDir}/${container.name}_export_tmp.tar.gz")
             tempArchive.delete()
 
-            val cmd = "\"${deployed.absolutePath}\" \"${container.name}\" \"${tempArchive.absolutePath}\""
+            val cmd = "sh \"${deployed.absolutePath}\" \"${container.name}\" \"${tempArchive.absolutePath}\""
             val success = ContainerOperationExecutor.executeCommand(
                 command = cmd,
                 operation = "export",
@@ -221,6 +236,61 @@ class ContainerOperationsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Move storage ────────────────────────────────────────────────────────────
+    /**
+     * Relocate a container's rootfs to [newStorageDir] (or back to the default
+     * internal location if null), stopping the container first if it's running,
+     * then rewriting its config to point at the new location.
+     */
+    suspend fun executeMoveStorage(
+        container: ContainerInfo,
+        newStorageDir: String?,
+        onError: (String) -> Unit,
+        onSuccess: (String) -> Unit,
+        onRefresh: () -> Unit,
+    ) {
+        val collectedLogs = mutableListOf<String>()
+        val logger = ViewModelLogger { _, message -> collectedLogs.add(message) }.apply { verbose = true }
+
+        try {
+            val isRunning = ContainerManager.checkContainerStatus(container.name).first
+            if (isRunning) {
+                moveStorageState = MoveStorageState.InProgress(container.name, string(R.string.stopping_container))
+                val stopCommand = ContainerCommandBuilder.buildStopCommand(container)
+                val stopResult = ContainerOperationExecutor.executeCommand(stopCommand, "stop", logger)
+                if (!stopResult) {
+                    moveStorageState = MoveStorageState.Idle
+                    if (collectedLogs.isNotEmpty()) moveStorageLogsDialog = collectedLogs
+                    else onError(string(R.string.failed_to_stop_container, container.name))
+                    onRefresh()
+                    return
+                }
+            }
+
+            moveStorageState = MoveStorageState.InProgress(container.name, "Moving container data...")
+            val result = ContainerManager.moveContainerStorage(appContext, container, newStorageDir, logger)
+            moveStorageState = MoveStorageState.Idle
+
+            if (result.isFailure) {
+                val msg = result.exceptionOrNull()?.message
+                if (!msg.isNullOrBlank()) onError(msg)
+                else if (collectedLogs.isNotEmpty()) moveStorageLogsDialog = collectedLogs
+                else onError("Failed to move ${container.name}'s storage")
+                onRefresh()
+            } else {
+                onSuccess("Moved ${container.name} to ${result.getOrNull()}")
+                onRefresh()
+            }
+        } catch (e: Exception) {
+            moveStorageState = MoveStorageState.Idle
+            collectedLogs.add("Exception: ${e.message}")
+            collectedLogs.add(e.stackTraceToString())
+            if (collectedLogs.isNotEmpty()) moveStorageLogsDialog = collectedLogs
+            else onError("Failed to move ${container.name}'s storage")
+            onRefresh()
+        }
+    }
+
     // ── Start / Stop / Restart ────────────────────────────────────────────────
     suspend fun executeOperation(
         container: ContainerInfo,
@@ -238,20 +308,26 @@ class ContainerOperationsViewModel(app: Application) : AndroidViewModel(app) {
         val logger = ViewModelLogger { level, message -> logs.add(level to message) }.apply { verbose = true }
 
         try {
+            val effectiveContainer = if (operation == "start" || operation == "restart") {
+                ContainerManager.autoDetectAndRemapContainerPath(appContext, container, logger)
+            } else {
+                container
+            }
+
             if (operation == "stop" || operation == "restart") {
                 appContext.startService(
                     Intent(appContext, TerminalSessionService::class.java).apply {
                         action = TerminalSessionService.ACTION_STOP_CONTAINER_SESSIONS
-                        putExtra(TerminalSessionService.EXTRA_CONTAINER_NAME, container.name)
+                        putExtra(TerminalSessionService.EXTRA_CONTAINER_NAME, effectiveContainer.name)
                     }
                 )
-                onClearUsage(container.name)
+                onClearUsage(effectiveContainer.name)
             }
 
             val command = when (operation) {
-                "start" -> ContainerCommandBuilder.buildStartCommand(container)
-                "stop" -> ContainerCommandBuilder.buildStopCommand(container)
-                "restart" -> ContainerCommandBuilder.buildRestartCommand(container)
+                "start" -> ContainerCommandBuilder.buildStartCommand(effectiveContainer)
+                "stop" -> ContainerCommandBuilder.buildStopCommand(effectiveContainer)
+                "restart" -> ContainerCommandBuilder.buildRestartCommand(effectiveContainer)
                 else -> {
                     runningOperationContainer = null
                     return
@@ -333,16 +409,25 @@ class ContainerOperationsViewModel(app: Application) : AndroidViewModel(app) {
             }
             Shell.cmd("chmod 755 \"${deployedFile.absolutePath}\"").exec()
 
-            val baseDir = ContainerManager.getContainerDirectory(container.name)
+            // Derive the container's actual data directory from its known rootfs path
+            // (parent of "rootfs" or "rootfs.img") rather than recomputing the default
+            // internal path -- this stays correct for containers on external storage.
+            val baseDir = container.rootfsPath.substringBeforeLast(
+                "/",
+                ContainerManager.getContainerDirectory(container.name)
+            )
             val cmd = when (operation) {
                 is SparseOperation.Migrate -> {
                     logger.i(string(R.string.starting_migration))
-                    "\"${deployedFile.absolutePath}\" -d \"$baseDir\" migrate $sizeGb"
+                    "sh \"${deployedFile.absolutePath}\" -d \"$baseDir\" migrate $sizeGb"
                 }
                 is SparseOperation.Resize -> {
                     logger.i(string(R.string.starting_resizing))
-                    val imgPath = ContainerManager.getSparseImagePath(container.name)
-                    "\"${deployedFile.absolutePath}\" -i \"$imgPath\" resize $sizeGb --yes"
+                    // Use the container's actual, already-known rootfs.img location
+                    // (which may live on external/custom storage) instead of
+                    // recomputing the default internal path.
+                    val imgPath = container.rootfsPath
+                    "sh \"${deployedFile.absolutePath}\" -i \"$imgPath\" resize $sizeGb --yes"
                 }
             }
 

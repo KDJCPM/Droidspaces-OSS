@@ -51,6 +51,7 @@ data class ContainerCardActions(
     val onMigrate: () -> Unit = {},
     val onResize: () -> Unit = {},
     val onExport: () -> Unit = {},
+    val onMoveStorage: () -> Unit = {},
     val onToggleExpand: () -> Unit = {},
     val onShowLogs: () -> Unit = {},
 )
@@ -73,6 +74,7 @@ fun ContainerCard(
     val onMigrate = actions.onMigrate
     val onResize = actions.onResize
     val onExport = actions.onExport
+    val onMoveStorage = actions.onMoveStorage
     val onToggleExpand = actions.onToggleExpand
     val onShowLogs = actions.onShowLogs
     val context = LocalContext.current
@@ -293,6 +295,13 @@ fun ContainerCard(
                         label = context.getString(R.string.edit_container_configuration),
                         tint = MaterialTheme.colorScheme.primary,
                         onClick = { onEdit() }
+                    )
+
+                    ActionItem(
+                        icon = Icons.Default.DriveFileMove,
+                        label = "Move storage location",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        onClick = { onMoveStorage() }
                     )
 
                     if (!container.useSparseImage) {

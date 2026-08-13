@@ -53,6 +53,7 @@ import com.droidspaces.app.ui.component.RootfsRepoSheet
 import com.droidspaces.app.ui.viewmodel.ContainerViewModel
 import com.droidspaces.app.ui.viewmodel.ContainerOperationsViewModel
 import com.droidspaces.app.ui.viewmodel.UninstallState
+import com.droidspaces.app.ui.viewmodel.MoveStorageState
 import com.droidspaces.app.ui.viewmodel.SparseOperation
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -85,6 +86,7 @@ fun ContainersScreen(
     // UI-only state (dialog triggers / pending pickers).
     var showUninstallConfirmation by remember { mutableStateOf<ContainerInfo?>(null) }
     var pendingSparseOperation by remember { mutableStateOf<SparseOperation?>(null) }
+    var pendingMoveStorageContainer by remember { mutableStateOf<ContainerInfo?>(null) }
     var pendingExportContainer by remember { mutableStateOf<ContainerInfo?>(null) }
     var showRepoSheet by remember { mutableStateOf(false) }
 
@@ -246,6 +248,10 @@ fun ContainersScreen(
                                 val fileName = "${container.name}_${timestamp}.tar.gz"
                                 pendingExportContainer = container
                                 exportFileLauncher.launch(fileName)
+                            },
+                            onMoveStorage = {
+                                onExpandedContainerNameChange(null)
+                                pendingMoveStorageContainer = container
                             }
                             )
                         )
@@ -407,6 +413,39 @@ fun ContainersScreen(
                     }
                 },
                 onDismiss = { pendingSparseOperation = null }
+            )
+        }
+
+        // Move-storage location picker dialog
+        pendingMoveStorageContainer?.let { container ->
+            MoveStorageDialog(
+                container = container,
+                onConfirm = { newPath ->
+                    pendingMoveStorageContainer = null
+                    scope.launch {
+                        opsViewModel.executeMoveStorage(
+                            container,
+                            newPath,
+                            onError = { msg -> scope.showError(snackbarHostState, msg) },
+                            onSuccess = { msg -> scope.showSuccess(snackbarHostState, msg) },
+                            onRefresh = { containerViewModel.refresh() }
+                        )
+                    }
+                },
+                onDismiss = { pendingMoveStorageContainer = null }
+            )
+        }
+
+        // Move-storage progress dialog
+        (opsViewModel.moveStorageState as? MoveStorageState.InProgress)?.let { state ->
+            ProgressDialog(message = state.message)
+        }
+
+        // Move-storage logs dialog (only on failure without a clear error message)
+        opsViewModel.moveStorageLogsDialog?.let { logs ->
+            ErrorLogsDialog(
+                logs = logs,
+                onDismiss = { opsViewModel.dismissMoveStorageLogs() }
             )
         }
     }
@@ -597,6 +636,220 @@ private fun UninstallConfirmationDialog(
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isConfirmed) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Lets the user relocate an existing container's rootfs: internal (default) or an
+ * external/custom path, mirroring [StorageLocationScreen]'s choice but as a compact
+ * dialog for an existing container instead of a full wizard step. Only offered when
+ * the underlying data move (and config rewrite) is confirmed here -- the actual
+ * move happens in [ContainerOperationsViewModel.executeMoveStorage].
+ */
+/** Local validation state for [MoveStorageDialog]'s custom path field. */
+private sealed class MoveStoragePathCheck {
+    data object Idle : MoveStoragePathCheck()
+    data object Checking : MoveStoragePathCheck()
+    data object Valid : MoveStoragePathCheck()
+    data class Invalid(val reason: String) : MoveStoragePathCheck()
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun MoveStorageDialog(
+    container: com.droidspaces.app.util.ContainerInfo,
+    onConfirm: (newPath: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dialogShape = RoundedCornerShape(24.dp)
+    val currentDir = container.rootfsPath.substringBeforeLast("/", "")
+    var useCustomLocation by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var customPath by remember { mutableStateOf("") }
+    var detectedVolumes by remember { mutableStateOf<List<String>>(emptyList()) }
+    var sharedStoragePath by remember { mutableStateOf<String?>(null) }
+    var pathCheck by remember { mutableStateOf<MoveStoragePathCheck>(MoveStoragePathCheck.Idle) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        detectedVolumes = com.droidspaces.app.util.StorageChecker.listStorageVolumes()
+        sharedStoragePath = com.droidspaces.app.util.StorageChecker.getSharedStoragePath()
+    }
+
+    // Debounced writability check, same as the creation wizard's StorageLocationScreen --
+    // catches a bad/mistyped path here with a clear message instead of deep in the move.
+    LaunchedEffect(customPath, useCustomLocation) {
+        if (!useCustomLocation || customPath.trim().isEmpty()) {
+            pathCheck = MoveStoragePathCheck.Idle
+            return@LaunchedEffect
+        }
+        pathCheck = MoveStoragePathCheck.Checking
+        kotlinx.coroutines.delay(500)
+        val result = com.droidspaces.app.util.StorageChecker.validateWritablePath(customPath.trim())
+        pathCheck = if (result.isSuccess) {
+            if (!container.useSparseImage) {
+                val report = com.droidspaces.app.util.StorageChecker.inspectFilesystemCapabilities(customPath.trim(), context)
+                if (!report.isFullyCompatibleWithDirectoryMode) {
+                    MoveStoragePathCheck.Invalid("Incompatible '${report.fsType}' filesystem. Directory mode requires POSIX ext4/f2fs. Migrate container to sparse image first.")
+                } else {
+                    MoveStoragePathCheck.Valid
+                }
+            } else {
+                MoveStoragePathCheck.Valid
+            }
+        } else {
+            MoveStoragePathCheck.Invalid(result.exceptionOrNull()?.message ?: "Can't write to this path")
+        }
+    }
+
+    val isValid = !useCustomLocation ||
+        (customPath.trim().isNotEmpty() && pathCheck !is MoveStoragePathCheck.Invalid)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .imePadding(),
+            shape = dialogShape,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            tonalElevation = 0.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Move Storage", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Move \"${container.name}\"'s data to a different location. The container will be stopped first if it's running.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Current location: $currentDir",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+
+                if (!container.useSparseImage) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                    ) {
+                        Text(
+                            "This container uses directory-mode rootfs. Moving it to a FAT32/exFAT SD card or USB drive will break it -- only move it to another ext4/f2fs-formatted location.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = !useCustomLocation, onClick = { useCustomLocation = false })
+                    Text("Internal storage (default)", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = useCustomLocation, onClick = { useCustomLocation = true })
+                    Text("External / custom location", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                if (useCustomLocation) {
+                    com.droidspaces.app.ui.component.StorageDestinationPicker(
+                        path = customPath,
+                        onPathChange = { customPath = it },
+                        placeholder = "/storage/1234-5678/Droidspaces",
+                        isError = pathCheck is MoveStoragePathCheck.Invalid,
+                        trailingStatusIcon = {
+                            when (pathCheck) {
+                                is MoveStoragePathCheck.Checking -> CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                is MoveStoragePathCheck.Valid -> Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                is MoveStoragePathCheck.Invalid -> Icon(
+                                    Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                else -> {}
+                            }
+                        },
+                        supportingText = {
+                            val check = pathCheck
+                            when (check) {
+                                is MoveStoragePathCheck.Invalid -> Text(check.reason, color = MaterialTheme.colorScheme.error)
+                                is MoveStoragePathCheck.Valid -> Text("Path is writable", color = MaterialTheme.colorScheme.primary)
+                                else -> {}
+                            }
+                        },
+                        colors = DsTextFieldDefaults.colors(),
+                        dialogTitle = "Select Storage Location"
+                    )
+
+                    if (detectedVolumes.isNotEmpty() || sharedStoragePath != null) {
+                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            sharedStoragePath?.let { shared ->
+                                AssistChip(
+                                    onClick = { customPath = "$shared/Droidspaces" },
+                                    label = { Text("This device's storage") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Smartphone, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    }
+                                )
+                            }
+                            detectedVolumes.forEach { volume ->
+                                AssistChip(
+                                    onClick = { customPath = "$volume/Droidspaces" },
+                                    label = { Text(volume.substringAfterLast("/")) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable(onClick = onDismiss),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        tonalElevation = 0.dp
+                    ) {
+                        Box(modifier = Modifier.padding(14.dp), contentAlignment = Alignment.Center) {
+                            Text("Cancel", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable(
+                            enabled = isValid,
+                            onClick = { onConfirm(if (useCustomLocation) customPath.trim() else null) }
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        tonalElevation = 0.dp
+                    ) {
+                        Box(modifier = Modifier.padding(14.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                "Move",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isValid) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                             )
                         }
                     }
