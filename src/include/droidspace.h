@@ -67,7 +67,7 @@
  * ---------------------------------------------------------------------------*/
 
 #define DS_PROJECT_NAME "Droidspaces"
-#define DS_VERSION "6.4.5"
+#define DS_VERSION "6.5.0"
 #define DS_MIN_KERNEL_MAJOR 3
 #define DS_MIN_KERNEL_MINOR 10
 #define DS_RECOMMENDED_KERNEL_MAJOR 4
@@ -783,12 +783,15 @@ int ds_nl_probe_nat_capability(char *reason, size_t rsz);
  * ---------------------------------------------------------------------------*/
 
 int ds_ipt_ensure_masquerade(const char *src_cidr);
+int ds_ipt_host_rules_present(const char *iface, const char *src_cidr,
+                              int expect_dnat);
 int ds_ipt_ensure_forward_accept(const char *iface);
 int ds_ipt_ensure_input_accept(const char *iface);
 int ds_ipt_ensure_mss_clamp(void);
 int ds_ipt_remove_iface_rules(const char *iface);
 int ds_ipt_remove_ds_rules(void);
-int ds_ipt_add_portforwards(struct ds_config *cfg, const char *container_ip);
+int ds_ipt_add_portforwards(struct ds_port_forward *pfs, int count,
+                            const char *container_ip);
 int ds_ipt_remove_portforwards(struct ds_config *cfg);
 
 /* ---------------------------------------------------------------------------

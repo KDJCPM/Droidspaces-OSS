@@ -264,8 +264,8 @@ void ds_ksu_neutralize_root_escape(void) {
   /* KSU kprobes reboot(); with the magic pair it returns -EINVAL but a
    * task_work callback installs the [ksu_driver] fd.  On non-KSU kernels
    * this is just an -EINVAL reboot() and fd stays -1. */
-  long ret = syscall(__NR_reboot, DS_KSU_INSTALL_MAGIC1,
-                     DS_KSU_INSTALL_MAGIC2, 0, &fd);
+  long ret = syscall(__NR_reboot, DS_KSU_INSTALL_MAGIC1, DS_KSU_INSTALL_MAGIC2,
+                     0, &fd);
   (void)ret;
   if (fd < 0)
     return; /* KSU not present or no fd installed */
