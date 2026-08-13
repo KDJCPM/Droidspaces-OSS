@@ -161,16 +161,32 @@ object ContainerManager {
 
     /**
      * Get the rootfs path for a container (LXC-style: /rootfs subdirectory).
+     *
+     * @param customStorageDir Optional external/custom storage root (e.g. an SD card or
+     * USB-OTG mount point). When provided, the container's rootfs lives under
+     * "$customStorageDir/<sanitizedName>/rootfs" instead of the default internal
+     * CONTAINERS_BASE_PATH. The container's own metadata (config file, .env, pidfile)
+     * always stays under CONTAINERS_BASE_PATH regardless of this setting.
      */
-    fun getRootfsPath(name: String): String {
-        return "${getContainerDirectory(name)}/rootfs"
+    fun getRootfsPath(name: String, customStorageDir: String? = null): String {
+        return if (customStorageDir != null) {
+            "${customStorageDir.trimEnd('/')}/${sanitizeContainerName(name)}/rootfs"
+        } else {
+            "${getContainerDirectory(name)}/rootfs"
+        }
     }
 
     /**
      * Get the sparse image path for a container.
+     *
+     * @param customStorageDir Optional external/custom storage root — see [getRootfsPath].
      */
-    fun getSparseImagePath(name: String): String {
-        return "${getContainerDirectory(name)}/rootfs.img"
+    fun getSparseImagePath(name: String, customStorageDir: String? = null): String {
+        return if (customStorageDir != null) {
+            "${customStorageDir.trimEnd('/')}/${sanitizeContainerName(name)}/rootfs.img"
+        } else {
+            "${getContainerDirectory(name)}/rootfs.img"
+        }
     }
 
     /**
@@ -452,7 +468,10 @@ object ContainerManager {
 
     /**
      * Update container configuration.
-     * Only updates the configurable options (hostname, flags), not name or rootfsPath.
+     * Updates the configurable options (hostname, flags, rootfsPath, etc.), not the
+     * container's name. Note: changing rootfsPath here only rewrites the config file --
+     * it does NOT move any data on disk. Use [moveContainerStorage] to actually relocate
+     * a container's rootfs and update its config together.
      *
      * @param context Android context for temporary file creation
      * @param containerName Name of the container to update (will be sanitized)
@@ -523,7 +542,273 @@ object ContainerManager {
             // Clean up temp config file
             tempConfigFile.delete()
 
+            // Best-effort sync embedded config inside sparse image for portability
+            if (newConfig.useSparseImage && newConfig.rootfsPath.isNotBlank()) {
+                try {
+                    ExistingImageManager.embedConfig(newConfig.rootfsPath, configContent, context)
+                } catch (e: Exception) {
+                    // Non-fatal
+                }
+            }
+
             Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Auto-detects if an external container's rootfs or image path has changed
+     * due to USB storage eject/remount (e.g. volume UUID or mount point change).
+     * If found on another active external storage volume, updates container.config on disk
+     * and returns the updated ContainerInfo.
+     */
+    suspend fun autoDetectAndRemapContainerPath(
+        context: Context,
+        container: ContainerInfo,
+        logger: ContainerLogger? = null
+    ): ContainerInfo = withContext(Dispatchers.IO) {
+        val oldPath = container.rootfsPath.trim()
+        if (oldPath.isBlank()) return@withContext container
+
+        // Ensure stale loop devices and mounts are cleaned first
+        StorageMountManager.cleanupStaleMountsAndLoopDevices()
+        StorageMountManager.ensureVolumeMounted(oldPath)
+
+        val oldVolId = StorageMountManager.extractVolumeId(oldPath)
+
+        // For external sparse images, ALWAYS ensure the physical path (/mnt/media_rw/...)
+        // is used in container.config so loop mounting bypasses Android FUSE layer (which returns ENXIO).
+        if (oldVolId != null && container.useSparseImage) {
+            val physicalPath = StorageMountManager.resolveToPhysicalPath(oldPath)
+            val qPhys = ContainerCommandBuilder.quote(physicalPath)
+            val physExists = Shell.cmd("[ -f $qPhys ] && echo yes || echo no").exec().out.firstOrNull()?.trim() == "yes"
+            if (physExists) {
+                if (oldPath != physicalPath) {
+                    logger?.i("Using raw physical storage path for loop mount: $physicalPath")
+                    val updated = container.copy(rootfsPath = physicalPath)
+                    updateContainerConfig(context, container.name, updated)
+                    return@withContext updated
+                }
+                return@withContext container
+            }
+        }
+
+        // Check if current path exists and is accessible
+        val qOld = ContainerCommandBuilder.quote(oldPath)
+        val exists = Shell.cmd("[ -e $qOld ] && echo yes || echo no").exec().out.firstOrNull()?.trim() == "yes"
+        if (exists) {
+            return@withContext container
+        }
+
+        if (oldVolId == null) return@withContext container
+
+        // Extract subpath after the old volume ID
+        val subPath = oldPath.substringAfter(oldVolId, "").trimStart('/')
+        val filename = oldPath.substringAfterLast("/")
+
+        // Discover all currently connected storage volumes
+        val activeVolumes = StorageMountManager.listAllStorageVolumes()
+        for (volPath in activeVolumes) {
+            val candidatePaths = mutableListOf<String>()
+            if (subPath.isNotEmpty()) {
+                candidatePaths.add("$volPath/$subPath")
+            }
+            candidatePaths.add("$volPath/${sanitizeContainerName(container.name)}/rootfs.img")
+            candidatePaths.add("$volPath/${sanitizeContainerName(container.name)}/rootfs")
+            if (filename.isNotEmpty() && filename != "rootfs.img" && filename != "rootfs") {
+                candidatePaths.add("$volPath/$filename")
+            }
+
+            for (cand in candidatePaths.distinct()) {
+                val qCand = ContainerCommandBuilder.quote(cand)
+                val candExists = Shell.cmd("[ -e $qCand ] && echo yes || echo no").exec().out.firstOrNull()?.trim() == "yes"
+                if (candExists) {
+                    val targetPath = if (container.useSparseImage) {
+                        StorageMountManager.resolveToPhysicalPath(cand)
+                    } else {
+                        cand
+                    }
+                    logger?.i("Storage remount detected: container rootfs relocated from $oldPath to $targetPath")
+                    val updated = container.copy(rootfsPath = targetPath)
+                    updateContainerConfig(context, container.name, updated)
+                    return@withContext updated
+                }
+            }
+        }
+
+        logger?.w("Warning: Container rootfs not found at $oldPath and no matching path found on connected storage drives.")
+        container
+    }
+
+    /**
+     * Move a container's rootfs (or rootfs.img) to a different storage location and
+     * update its config file to match. This is the "storage relocation" companion to
+     * [ContainerInstaller.installContainer]'s initial storage-location choice.
+     *
+     * The container's small metadata (config file, .env, pidfile) always stays under the
+     * internal CONTAINERS_BASE_PATH -- only the (large) rootfs data is relocated.
+     *
+     * @param context Android context, needed by [updateContainerConfig]
+     * @param container The container to move (must be stopped)
+     * @param newStorageDir Destination storage root, e.g. "/storage/1234-5678/Droidspaces".
+     *   Pass null to move the container back to the default internal location.
+     * @param logger Optional logger for progress/diagnostic messages
+     * @return Result.success(newRootfsPath) on success, Result.failure with a
+     *   human-readable message on error. On failure, no partial state is left behind:
+     *   either the move completed and the config was updated, or nothing changed.
+     */
+    suspend fun moveContainerStorage(
+        context: Context,
+        container: ContainerInfo,
+        newStorageDir: String?,
+        logger: ContainerLogger? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            // Refuse to move a running container -- the rootfs may be actively
+            // mounted/in use and moving it out from under a live process is unsafe.
+            val (isRunning, _) = checkContainerStatus(container.name)
+            if (isRunning) {
+                return@withContext Result.failure(
+                    Exception("Stop the container before moving its storage.")
+                )
+            }
+
+            // /mnt/media_rw/<vol> is vold's raw mount of removable media. Writing
+            // there directly is unreliable -- see StorageChecker.normalizeStorageDir.
+            val normalizedStorageDir = newStorageDir?.let { StorageChecker.normalizeStorageDir(it) }
+
+            val containerPath = getContainerDirectory(container.name)
+            val oldRootfsPath = container.rootfsPath
+            val newRootfsPath = if (container.useSparseImage) {
+                getSparseImagePath(container.name, normalizedStorageDir)
+            } else {
+                getRootfsPath(container.name, normalizedStorageDir)
+            }
+
+            if (oldRootfsPath == newRootfsPath) {
+                return@withContext Result.failure(
+                    Exception("Container is already at that location.")
+                )
+            }
+
+            val isExternal = RootNamespace.isExternalStorage(oldRootfsPath) || RootNamespace.isExternalStorage(newRootfsPath)
+            val quotedOld = ContainerCommandBuilder.quote(oldRootfsPath)
+            val quotedNew = ContainerCommandBuilder.quote(newRootfsPath)
+
+            // Verify the current rootfs actually exists before doing anything.
+            val existsCheck = RootNamespace.exec("[ -e $quotedOld ] && echo yes || echo no", forceNsenter = isExternal)
+            if (existsCheck.out.firstOrNull()?.trim() != "yes") {
+                return@withContext Result.failure(
+                    Exception("Current rootfs not found at $oldRootfsPath")
+                )
+            }
+
+            val newParentDir = newRootfsPath.substringBeforeLast("/", newRootfsPath)
+
+            // Best-effort free-space check at the destination (non-fatal if it can't
+            // be determined -- some filesystems/paths don't report du/df cleanly).
+            logger?.i("Checking free space at $newParentDir ...")
+            val sizeResult = RootNamespace.exec(
+                "du -sk $quotedOld 2>/dev/null | ${Constants.BUSYBOX_BINARY_PATH} awk '{print \$1}'",
+                forceNsenter = isExternal
+            )
+            val neededKB = sizeResult.out.firstOrNull()?.trim()?.toLongOrNull()
+            val mkdirParentResult = RootNamespace.exec(
+                "mkdir -p ${ContainerCommandBuilder.quote(newParentDir)} 2>&1",
+                forceNsenter = isExternal
+            )
+            if (!mkdirParentResult.isSuccess) {
+                val err = (mkdirParentResult.out + mkdirParentResult.err).joinToString("\n").trim()
+                return@withContext Result.failure(Exception("Failed to create destination directory: $err"))
+            }
+            if (neededKB != null) {
+                val freeGB = StorageChecker.getFreeSpaceGB(newParentDir)
+                val neededGB = (neededKB / 1024 / 1024).toInt() + 1 // round up + 1GB margin
+                if (freeGB != null && freeGB < neededGB) {
+                    return@withContext Result.failure(
+                        Exception("Not enough free space at destination (~${neededGB}GB needed, ${freeGB}GB free)")
+                    )
+                }
+            }
+
+            // FAT32 caps any single file at 4 GiB. cp/mv into a FAT32 destination
+            // fail mid-copy with "short write: No space left on device" once the
+            // destination file crosses that line, even with plenty of free space on
+            // the volume -- catch it up front with a clear message instead. exFAT
+            // and ext4 have no such limit.
+            val fsTypeResult = RootNamespace.exec(
+                "stat -f -c '%T' ${ContainerCommandBuilder.quote(newParentDir)} 2>/dev/null",
+                forceNsenter = isExternal
+            )
+            val destFsType = fsTypeResult.out.firstOrNull()?.trim()?.lowercase()
+            val isFat32 = destFsType == "msdos" || destFsType == "vfat" || destFsType == "fat"
+            if (isFat32 && neededKB != null && neededKB > 4L * 1024 * 1024) {
+                return@withContext Result.failure(
+                    Exception(
+                        "Destination is FAT32, which can't hold a single file over 4GB " +
+                        "(this container's data is ~${neededKB / 1024 / 1024}GB). " +
+                        "Reformat the drive as exFAT or ext4, or pick a different destination."
+                    )
+                )
+            }
+
+            // Try a plain rename first (instant, but only works within the same
+            // filesystem). Falls back to copy-then-delete for cross-filesystem moves,
+            // which is the common case (internal storage -> SD card / USB-OTG).
+            logger?.i("Moving rootfs from $oldRootfsPath to $newRootfsPath ...")
+            val mvResult = RootNamespace.exec("mv $quotedOld $quotedNew 2>&1", forceNsenter = isExternal)
+            if (!mvResult.isSuccess) {
+                logger?.i("Direct rename unavailable (different filesystem) -- copying instead. This may take a while for large containers.")
+                val cpResult = RootNamespace.exec("cp -a $quotedOld $quotedNew 2>&1", forceNsenter = isExternal)
+                if (!cpResult.isSuccess) {
+                    val err = (cpResult.out + cpResult.err).joinToString("\n").trim()
+                    // Clean up any partial copy so a retry starts clean.
+                    RootNamespace.exec("rm -rf $quotedNew 2>&1", forceNsenter = isExternal)
+                    return@withContext Result.failure(Exception("Failed to copy rootfs to new location: $err"))
+                }
+
+                // Data is safely copied to the new location -- now update the config
+                // BEFORE deleting the old copy, so a crash here never leaves the
+                // container pointing at data that no longer exists.
+                val updateResult = updateContainerConfig(
+                    context, container.name, container.copy(rootfsPath = newRootfsPath)
+                )
+                if (updateResult.isFailure) {
+                    RootNamespace.exec("rm -rf $quotedNew 2>&1", forceNsenter = isExternal)
+                    return@withContext Result.failure(
+                        updateResult.exceptionOrNull() ?: Exception("Failed to update container config")
+                    )
+                }
+
+                logger?.i("Removing old copy at $oldRootfsPath ...")
+                val rmResult = RootNamespace.exec("rm -rf $quotedOld 2>&1", forceNsenter = isExternal)
+                if (!rmResult.isSuccess) {
+                    logger?.w("Move succeeded, but couldn't remove the old data at $oldRootfsPath -- remove it manually to free up space.")
+                }
+            } else {
+                // Plain rename succeeded -- update the config to match.
+                val updateResult = updateContainerConfig(
+                    context, container.name, container.copy(rootfsPath = newRootfsPath)
+                )
+                if (updateResult.isFailure) {
+                    // Move the data back so we don't leave the container broken.
+                    RootNamespace.exec("mv $quotedNew $quotedOld 2>&1", forceNsenter = isExternal)
+                    return@withContext Result.failure(
+                        updateResult.exceptionOrNull() ?: Exception("Failed to update container config")
+                    )
+                }
+            }
+
+            // Clean up the now-empty old external directory, if any (no-op/safe if
+            // it's not empty or was the internal container directory).
+            val oldParentDir = oldRootfsPath.substringBeforeLast("/", "")
+            if (oldParentDir.isNotEmpty() && oldParentDir != containerPath) {
+                RootNamespace.exec("rmdir ${ContainerCommandBuilder.quote(oldParentDir)} 2>/dev/null", forceNsenter = isExternal)
+            }
+
+            logger?.i("Move complete. New location: $newRootfsPath")
+            Result.success(newRootfsPath)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -626,6 +911,23 @@ object ContainerManager {
             if (!deleteResult.isSuccess) {
                 logger.e("Failed to delete container directory (exit code: ${deleteResult.code})")
                 return@withContext Result.failure(Exception("Failed to delete container directory"))
+            }
+
+            // Step 2.1: If this container's rootfs lives on external/custom storage
+            // (outside the default container directory), it won't have been touched
+            // by the rm -rf above -- clean it up separately.
+            val rootfsParentDir = container.rootfsPath.substringBeforeLast("/", "")
+            if (rootfsParentDir.isNotEmpty() && rootfsParentDir != containerPath) {
+                logger.i("Removing external storage location: $rootfsParentDir")
+                val extDeleteResult = RootNamespace.exec(
+                    "rm -rf ${ContainerCommandBuilder.quote(rootfsParentDir)} 2>&1",
+                    targetPath = rootfsParentDir
+                )
+                if (!extDeleteResult.isSuccess) {
+                    logger.w("Warning: failed to remove external storage directory: $rootfsParentDir")
+                } else {
+                    logger.i("External storage location removed.")
+                }
             }
 
             // Verify deletion
