@@ -197,6 +197,21 @@ gateway_available() {
 
 # Start one container; returns 0 if it ends up with a live PID
 boot_container() {
+    # Ensure basic loop devices and external storage mounts are ready
+    for i in 0 1 2 3 4 5 6 7; do
+        [ -e "/dev/block/loop$i" ] || mknod "/dev/block/loop$i" b 7 "$i" 2>/dev/null || true
+        [ -e "/dev/loop$i" ] || mknod "/dev/loop$i" b 7 "$i" 2>/dev/null || true
+    done
+    for d in /mnt/media_rw/*; do
+        if [ -d "$d" ]; then
+            vol=$(${BUSYBOX_BINARY} basename "$d")
+            if [ "$vol" != "*" ] && [ "$vol" != "emulated" ] && [ "$vol" != "self" ]; then
+                mkdir -p "/storage/$vol" 2>/dev/null
+                mountpoint -q "/storage/$vol" 2>/dev/null || mount --bind "$d" "/storage/$vol" 2>/dev/null || true
+            fi
+        fi
+    done
+
     "${DROIDSPACE_BINARY}" --config "$1" start 2>&1 | \
         ${BUSYBOX_BINARY} sed "s/$(${BUSYBOX_BINARY} printf '\033')\[[0-9;]*[mK]//g"
     bpid=$("${DROIDSPACE_BINARY}" --config "$1" pid 2>/dev/null)
