@@ -52,7 +52,7 @@ fun DialogFooterRow(
             // Dismiss/Cancel Button
             Surface(
                 onClick = onDismiss,
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1f).height(42.dp),
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = cancelBorderAlpha))
@@ -70,7 +70,7 @@ fun DialogFooterRow(
             Surface(
                 onClick = onConfirm,
                 enabled = confirmEnabled,
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1f).height(42.dp),
                 shape = RoundedCornerShape(16.dp),
                 color = if (confirmEnabled) confirmColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
             ) {

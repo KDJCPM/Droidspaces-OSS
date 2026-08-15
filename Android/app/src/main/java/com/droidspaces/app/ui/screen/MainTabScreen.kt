@@ -585,89 +585,56 @@ private fun MainBottomBar(
     onTabSelected: (TabItem) -> Unit
 ) {
     val context = LocalContext.current
-    val pagerPosition = pagerState.currentPage + pagerState.currentPageOffsetFraction
-    
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.ui.graphics.RectangleShape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        shadowElevation = 0.dp 
+        shadowElevation = 0.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                 thickness = 1.dp
             )
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .height(56.dp)
+                    .height(56.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Background Indicator
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    val tabWidth = maxWidth / tabs.size
-                    val offset = tabWidth * pagerPosition
+                tabs.forEachIndexed { index, tab ->
+                    val isSelected = pagerState.currentPage == index
+                    val contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    val containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent
 
                     Surface(
+                        onClick = { onTabSelected(tab) },
                         modifier = Modifier
-                            .width(tabWidth)
-                            .fillMaxHeight()
-                            .offset(x = offset),
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    ) {}
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    tabs.forEachIndexed { index, tab ->
-                        val distance = if (pagerPosition > index) pagerPosition - index else index.toFloat() - pagerPosition
-                        val selectionFraction = (1.0f - distance).coerceIn(0.0f, 1.0f)
-                        
-                        val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        val selectedColor = MaterialTheme.colorScheme.primary
-                        val contentColor = colorLerp(unselectedColor, selectedColor, selectionFraction)
-                        
-                        val iconSize = dpLerp(22.dp, 24.dp, selectionFraction)
-                        val fontSize = (10f + 1f * selectionFraction).sp
-                        val isSelected = pagerState.currentPage == index
-                        val fontWeight = if (isSelected) {
-                            FontWeight.Bold
-                        } else {
-                            FontWeight((400f + 300f * selectionFraction).toInt().coerceIn(400, 700))
-                        }
-
-                        Surface(
-                            onClick = { onTabSelected(tab) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            color = androidx.compose.ui.graphics.Color.Transparent,
-                            shape = RoundedCornerShape(16.dp)
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        color = containerColor,
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(iconSize),
-                                    tint = contentColor
-                                )
-                                Text(
-                                    text = context.getString(tab.titleResId),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = contentColor,
-                                    fontSize = fontSize,
-                                    fontWeight = fontWeight
-                                )
-                            }
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = contentColor
+                            )
+                            Text(
+                                text = context.getString(tab.titleResId),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = contentColor,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
                         }
                     }
                 }
