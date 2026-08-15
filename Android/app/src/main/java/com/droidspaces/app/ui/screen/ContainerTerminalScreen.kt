@@ -454,6 +454,7 @@ private fun TerminalTabView(
 
                         post {
                             requestFocus()
+                            (mClient as? TerminalBackEnd)?.activate12KeyInputMethodIfNeeded()
                             mEmulator?.mColors?.mCurrentColors?.apply {
                                 set(256, terminalForeground)
                                 set(258, terminalForeground)

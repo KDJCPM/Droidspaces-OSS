@@ -37,8 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.droidspaces.app.R
 import com.droidspaces.app.ui.util.ClearFocusOnClickOutside
 import com.droidspaces.app.ui.util.FocusUtils
-import com.droidspaces.app.ui.util.LoadingIndicator
-import com.droidspaces.app.ui.util.LoadingSize
+import com.droidspaces.app.ui.util.FullScreenLoading
 import com.droidspaces.app.ui.viewmodel.AssetDownloadState
 import com.droidspaces.app.ui.viewmodel.RepoUiState
 import com.droidspaces.app.ui.viewmodel.RootfsRepoViewModel
@@ -74,7 +73,10 @@ fun RootfsRepoSheet(
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         ClearFocusOnClickOutside(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().imePadding()) {
+        // fillMaxSize, not fillMaxWidth: the sheet skips its partially-expanded
+        // state, so it is full height. Without it the column wraps its content and
+        // every state below sits stacked at the top of a tall, mostly empty sheet.
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
             var searchQuery by remember { mutableStateOf("") }
 
             // Derive stable display state - avoids AnimatedContent recomposition that collapses the sheet
@@ -139,15 +141,16 @@ fun RootfsRepoSheet(
                 RepoSearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
             }
 
-            // Content: list stays in composition during refresh so sheet height is stable
+            // Content: list stays in composition during refresh so sheet height is stable.
+            // Takes the height the header and the bottom spacer leave behind, so the
+            // loading and error states centre in the real empty area.
+            Box(modifier = Modifier.weight(1f)) {
             when {
                 displayAssets.isNotEmpty() -> {
                     Box {
                         if (filteredAssets.isEmpty()) {
                             Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(240.dp),
+                                modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(
@@ -193,6 +196,7 @@ fun RootfsRepoSheet(
 
                 else -> RepoLoadingContent()
             }
+            }
 
             Spacer(Modifier.navigationBarsPadding())
         }
@@ -214,14 +218,8 @@ fun RootfsRepoSheet(
 
 @Composable
 private fun RepoLoadingContent() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(240.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        LoadingIndicator(size = LoadingSize.Medium)
-    }
+    val context = LocalContext.current
+    FullScreenLoading(message = context.getString(R.string.fetching_distros))
 }
 
 @Composable
@@ -229,10 +227,10 @@ private fun RepoErrorContent(message: String, onRetry: () -> Unit) {
     val context = LocalContext.current
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
     ) {
         Icon(
             imageVector = Icons.Default.CloudOff,

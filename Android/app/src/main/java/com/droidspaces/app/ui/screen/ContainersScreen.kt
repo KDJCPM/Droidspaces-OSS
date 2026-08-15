@@ -401,6 +401,9 @@ fun ContainersScreen(
                     container.name
                 ),
                 initialSize = container.sparseImageSizeGB ?: 8,
+                // Only a resize can be a no-op: a migrate has no image yet, so
+                // picking the default size there is a legitimate choice.
+                currentSize = if (op is SparseOperation.Resize) container.sparseImageSizeGB else null,
                 onConfirm = { size ->
                     pendingSparseOperation = null
                     scope.launch {
@@ -419,12 +422,17 @@ private fun SparseSizeDialog(
     message: String,
     initialSize: Int,
     onConfirm: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    currentSize: Int? = null
 ) {
     val context = LocalContext.current
     var sizeText by remember { mutableStateOf(initialSize.toString()) }
     val size = sizeText.toIntOrNull()
-    val isValid = size != null && size in 4..512
+    val isOutOfRange = size == null || size !in 4..512
+    // The field opens pre-filled with the image's existing size, so confirming
+    // straight away would run a resize that resizes nothing.
+    val isSameSize = currentSize != null && size == currentSize
+    val isValid = !isOutOfRange && !isSameSize
     val dialogShape = RoundedCornerShape(24.dp)
 
     Dialog(
@@ -456,7 +464,13 @@ private fun SparseSizeDialog(
                     colors = DsTextFieldDefaults.colors(),
                     isError = !isValid && sizeText.isNotEmpty(),
                     supportingText = {
-                        if (!isValid && sizeText.isNotEmpty()) Text(context.getString(R.string.enter_size_between_4_512_gb))
+                        if (sizeText.isNotEmpty()) {
+                            if (isOutOfRange) {
+                                Text(context.getString(R.string.enter_size_between_4_512_gb))
+                            } else if (isSameSize) {
+                                Text(context.getString(R.string.resize_same_as_current, currentSize))
+                            }
+                        }
                     },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
@@ -553,11 +567,9 @@ private fun UninstallConfirmationDialog(
                     onDismiss = onDismiss,
                     onConfirm = onConfirm,
                     confirmEnabled = isConfirmed,
-                    confirmColor = MaterialTheme.colorScheme.error,
                     confirmContentColor = MaterialTheme.colorScheme.onError
                 )
             }
         }
     }
 }
-
