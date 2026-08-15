@@ -416,6 +416,9 @@ fun ContainersScreen(
                     container.name
                 ),
                 initialSize = container.sparseImageSizeGB ?: 8,
+                // Only a resize can be a no-op: a migrate has no image yet, so
+                // picking the default size there is a legitimate choice.
+                currentSize = if (op is SparseOperation.Resize) container.sparseImageSizeGB else null,
                 onConfirm = { size ->
                     pendingSparseOperation = null
                     scope.launch {
@@ -434,12 +437,17 @@ private fun SparseSizeDialog(
     message: String,
     initialSize: Int,
     onConfirm: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    currentSize: Int? = null
 ) {
     val context = LocalContext.current
     var sizeText by remember { mutableStateOf(initialSize.toString()) }
     val size = sizeText.toIntOrNull()
-    val isValid = size != null && size in 4..512
+    val isOutOfRange = size == null || size !in 4..512
+    // The field opens pre-filled with the image's existing size, so confirming
+    // straight away would run a resize that resizes nothing.
+    val isSameSize = currentSize != null && size == currentSize
+    val isValid = !isOutOfRange && !isSameSize
     val dialogShape = RoundedCornerShape(24.dp)
 
     Dialog(
@@ -471,7 +479,13 @@ private fun SparseSizeDialog(
                     colors = DsTextFieldDefaults.colors(),
                     isError = !isValid && sizeText.isNotEmpty(),
                     supportingText = {
-                        if (!isValid && sizeText.isNotEmpty()) Text(context.getString(R.string.enter_size_between_4_512_gb))
+                        if (sizeText.isNotEmpty()) {
+                            if (isOutOfRange) {
+                                Text(context.getString(R.string.enter_size_between_4_512_gb))
+                            } else if (isSameSize) {
+                                Text(context.getString(R.string.resize_same_as_current, currentSize))
+                            }
+                        }
                     },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
@@ -569,66 +583,6 @@ private fun UninstallConfirmationDialog(
                     onConfirm = onConfirm,
                     confirmEnabled = isConfirmed,
                     confirmColor = MaterialTheme.colorScheme.error,
-                    confirmContentColor = MaterialTheme.colorScheme.onError
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StopContainerConfirmationDialog(
-    containerName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val dialogShape = RoundedCornerShape(24.dp)
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight(),
-            shape = dialogShape,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
-            tonalElevation = 0.dp
-        ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "Stop Container?",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "Are you sure you want to stop the container \"$containerName\"?",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                DialogFooterRow(
-                    dismissLabel = context.getString(android.R.string.no),
-                    confirmLabel = context.getString(android.R.string.yes),
-                    onDismiss = onDismiss,
-                    onConfirm = onConfirm,
-                    confirmEnabled = true,
-                    confirmColor = MaterialTheme.colorScheme.error,
-                    confirmContentColor = MaterialTheme.colorScheme.onError
-                )
             }
         }
     }
