@@ -52,6 +52,8 @@ import java.util.UUID
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.core.content.res.ResourcesCompat
 import com.droidspaces.app.R
+import java.io.File
+import android.graphics.Typeface
 
 private data class TerminalTab(
     val id: String,
@@ -320,8 +322,22 @@ private fun TerminalTabView(
     val fontSizePx = TerminalSessionService.globalSessionList[tab.id]?.fontSizePx ?: defaultFontSizePx
     // Loaded once per composition - null = bundled font missing, fallback to system default
     val context = androidx.compose.ui.platform.LocalContext.current
-    val terminalTypeface = remember { ResourcesCompat.getFont(context, R.font.jetbrains_mono) }
 
+//自定义字体文件
+    val terminalTypeface = remember {
+    val fontFile = File(context.filesDir, "fonts/Zhongduan.ttf")
+    if (fontFile.exists()) {
+        Typeface.createFromFile(fontFile)
+    } else {
+        val fontFile = File(context.filesDir, "fonts/Terminal.ttf")
+      if (fontFile.exists()) {
+         Typeface.createFromFile(fontFile)
+        }else{
+         ResourcesCompat.getFont(context, R.font.jetbrains_mono)
+        }
+    }
+}
+    
     // Terminal-only dark mode: renders the terminal page dark even when the rest
     // of the app follows the light theme. Read once at entry; re-enter to apply.
     val terminalDarkTheme = remember {
