@@ -141,58 +141,6 @@ static uint64_t socketd_ntoh64(uint64_t value) {
   return socketd_hton64(value);
 }
 
-static int socketd_read_proc_start_ticks(pid_t pid,
-                                         unsigned long long *ticks_out) {
-  if (pid <= 0 || ticks_out == NULL)
-    return -1;
-
-  char path[PATH_MAX];
-  snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-
-  FILE *f = fopen(path, "re");
-  if (!f)
-    return -1;
-
-  char stat_buf[4096];
-  size_t n = fread(stat_buf, 1, sizeof(stat_buf) - 1, f);
-  int read_failed = ferror(f);
-  fclose(f);
-
-  if (read_failed || n == 0)
-    return -1;
-
-  stat_buf[n] = '\0';
-
-  char *rparen = strrchr(stat_buf, ')');
-  if (!rparen || rparen[1] != ' ')
-    return -1;
-
-  /*
-   * /proc/<pid>/stat field 2 is the parenthesized command name and may
-   * contain spaces. Start tokenizing only after the final ')' so that field
-   * numbering remains aligned with procfs; starttime is field 22.
-   */
-  char *cursor = rparen + 2;
-  char *saveptr = NULL;
-  int field_no = 3;
-
-  for (char *tok = strtok_r(cursor, " \t\r\n", &saveptr); tok != NULL;
-       tok = strtok_r(NULL, " \t\r\n", &saveptr), field_no++) {
-    if (field_no == 22) {
-      char *end = NULL;
-      errno = 0;
-      unsigned long long ticks = strtoull(tok, &end, 10);
-      if (errno != 0 || end == tok || *end != '\0')
-        return -1;
-
-      *ticks_out = ticks;
-      return 0;
-    }
-  }
-
-  return -1;
-}
-
 static int socketd_read_uptime_seconds(double *uptime_out) {
   if (!uptime_out)
     return -1;
@@ -216,7 +164,7 @@ static int64_t socketd_container_started_at_epoch(pid_t pid) {
   unsigned long long start_ticks = 0;
   double uptime_seconds = 0.0;
 
-  if (socketd_read_proc_start_ticks(pid, &start_ticks) < 0)
+  if (ds_read_proc_start_ticks(pid, &start_ticks) < 0)
     return 0;
 
   if (socketd_read_uptime_seconds(&uptime_seconds) < 0)

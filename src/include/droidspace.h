@@ -453,6 +453,7 @@ int is_subpath(const char *parent, const char *child);
 int is_running_in_termux(void);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
+int ds_read_proc_start_ticks(pid_t pid, unsigned long long *ticks_out);
 int write_file_atomic(const char *path, const char *content);
 ssize_t write_all(int fd, const void *buf, size_t count);
 int generate_uuid(char *buf, size_t size);

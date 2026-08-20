@@ -506,6 +506,54 @@ int read_file(const char *path, char *buf, size_t size) {
   return (int)total_read;
 }
 
+int ds_read_proc_start_ticks(pid_t pid, unsigned long long *ticks_out) {
+  if (pid <= 0 || ticks_out == NULL)
+    return -1;
+
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "/proc/%d/stat", (int)pid);
+
+  FILE *f = fopen(path, "re");
+  if (!f)
+    return -1;
+
+  char stat_buf[4096];
+  size_t n = fread(stat_buf, 1, sizeof(stat_buf) - 1, f);
+  int read_failed = ferror(f);
+  fclose(f);
+
+  if (read_failed || n == 0)
+    return -1;
+
+  stat_buf[n] = '\0';
+
+  char *rparen = strrchr(stat_buf, ')');
+  if (!rparen || rparen[1] != ' ')
+    return -1;
+
+  /* The parenthesized command name may contain spaces, so tokenizing must
+   * start after its final ')' to keep starttime aligned with field 22. */
+  char *cursor = rparen + 2;
+  char *saveptr = NULL;
+  int field_no = 3;
+
+  for (char *tok = strtok_r(cursor, " \t\r\n", &saveptr); tok != NULL;
+       tok = strtok_r(NULL, " \t\r\n", &saveptr), field_no++) {
+    if (field_no == 22) {
+      char *end = NULL;
+      errno = 0;
+      unsigned long long ticks = strtoull(tok, &end, 10);
+      if (errno != 0 || end == tok || *end != '\0')
+        return -1;
+
+      *ticks_out = ticks;
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
 /* UUID generation  - 32 hex chars from /dev/urandom */
 
 int generate_uuid(char *buf, size_t size) {

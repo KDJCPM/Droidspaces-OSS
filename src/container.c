@@ -28,6 +28,174 @@ static int get_lock_path(const char *name, char *buf, size_t size) {
   return (r > 0 && (size_t)r < size) ? 0 : -1;
 }
 
+struct ds_external_lock_owner {
+  pid_t pid;
+  unsigned long long start_ticks;
+  char boot_id[64];
+  int has_start_ticks;
+  int has_boot_id;
+};
+
+static int read_boot_id(char *buf, size_t size) {
+  if (!buf || size == 0)
+    return -1;
+
+  int n = read_file("/proc/sys/kernel/random/boot_id", buf, size);
+  if (n <= 0 || (size_t)n >= size - 1 || strlen(buf) != (size_t)n ||
+      strpbrk(buf, " \t\r\n") != NULL)
+    return -1;
+
+  return 0;
+}
+
+static int read_external_lock_owner(const char *path,
+                                    struct ds_external_lock_owner *owner) {
+  if (!path || !owner)
+    return -1;
+
+  char buf[160];
+  int n = read_file(path, buf, sizeof(buf));
+  if (n <= 0 || n == (int)sizeof(buf) - 1 || strlen(buf) != (size_t)n)
+    return -1;
+
+  char *tokens[3] = {0};
+  size_t token_count = 0;
+  char *saveptr = NULL;
+  for (char *tok = strtok_r(buf, " \t\r\n", &saveptr); tok != NULL;
+       tok = strtok_r(NULL, " \t\r\n", &saveptr)) {
+    if (token_count == sizeof(tokens) / sizeof(tokens[0]))
+      return -1;
+    tokens[token_count++] = tok;
+  }
+
+  if (token_count < 1)
+    return -1;
+
+  char *end = NULL;
+  if (!isdigit((unsigned char)tokens[0][0]))
+    return -1;
+  errno = 0;
+  long parsed_pid = strtol(tokens[0], &end, 10);
+  if (errno != 0 || end == tokens[0] || *end != '\0' || parsed_pid <= 0 ||
+      (long)(pid_t)parsed_pid != parsed_pid)
+    return -1;
+
+  memset(owner, 0, sizeof(*owner));
+  owner->pid = (pid_t)parsed_pid;
+
+  if (token_count >= 2) {
+    if (!isdigit((unsigned char)tokens[1][0]))
+      return -1;
+    errno = 0;
+    owner->start_ticks = strtoull(tokens[1], &end, 10);
+    if (errno != 0 || end == tokens[1] || *end != '\0')
+      return -1;
+    owner->has_start_ticks = 1;
+  }
+
+  if (token_count == 3) {
+    size_t boot_id_len = strlen(tokens[2]);
+    if (boot_id_len == 0 || boot_id_len >= sizeof(owner->boot_id))
+      return -1;
+    safe_strncpy(owner->boot_id, tokens[2], sizeof(owner->boot_id));
+    owner->has_boot_id = 1;
+  }
+
+  return 0;
+}
+
+static int is_external_lock_process_alive(pid_t pid) {
+  if (kill(pid, 0) == 0)
+    return 1;
+
+  /* EPERM and unexpected probe errors do not prove that the process is gone. */
+  return errno != ESRCH;
+}
+
+static int is_legacy_lock_owner_active(pid_t pid) {
+  if (!is_external_lock_process_alive(pid))
+    return 0;
+
+  char comm_path[64];
+  snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)pid);
+
+  char comm[64];
+  if (read_file(comm_path, comm, sizeof(comm)) > 0)
+    return strcmp(comm, "droidspaces") == 0;
+
+  /* The process may have exited between kill(2) and the procfs read. */
+  return is_external_lock_process_alive(pid);
+}
+
+static int
+is_external_lock_owner_active(const struct ds_external_lock_owner *owner) {
+  if (!owner || !is_external_lock_process_alive(owner->pid))
+    return 0;
+
+  if (!owner->has_start_ticks)
+    return is_legacy_lock_owner_active(owner->pid);
+
+  if (owner->has_boot_id) {
+    char current_boot_id[64];
+    if (read_boot_id(current_boot_id, sizeof(current_boot_id)) == 0 &&
+        strcmp(owner->boot_id, current_boot_id) != 0)
+      return 0;
+  }
+
+  unsigned long long current_start_ticks = 0;
+  if (ds_read_proc_start_ticks(owner->pid, &current_start_ticks) == 0)
+    return current_start_ticks == owner->start_ticks;
+
+  /* Keep a possibly valid lock if procfs identity is temporarily unreadable. */
+  return is_external_lock_process_alive(owner->pid);
+}
+
+static int
+is_external_lock_owner_current(const struct ds_external_lock_owner *owner) {
+  if (!owner || owner->pid != getpid())
+    return 0;
+
+  if (owner->has_start_ticks) {
+    unsigned long long current_start_ticks = 0;
+    if (ds_read_proc_start_ticks(getpid(), &current_start_ticks) < 0 ||
+        current_start_ticks != owner->start_ticks)
+      return 0;
+  }
+
+  if (owner->has_boot_id) {
+    char current_boot_id[64];
+    if (read_boot_id(current_boot_id, sizeof(current_boot_id)) < 0 ||
+        strcmp(current_boot_id, owner->boot_id) != 0)
+      return 0;
+  }
+
+  return 1;
+}
+
+static int write_external_lock_owner(const char *path) {
+  char owner_text[160];
+  unsigned long long start_ticks = 0;
+  char boot_id[64];
+  int n;
+
+  if (ds_read_proc_start_ticks(getpid(), &start_ticks) == 0) {
+    if (read_boot_id(boot_id, sizeof(boot_id)) == 0) {
+      n = snprintf(owner_text, sizeof(owner_text), "%d %llu %s", (int)getpid(),
+                   start_ticks, boot_id);
+    } else {
+      n = snprintf(owner_text, sizeof(owner_text), "%d %llu", (int)getpid(),
+                   start_ticks);
+    }
+  } else {
+    n = snprintf(owner_text, sizeof(owner_text), "%d", (int)getpid());
+  }
+
+  if (n <= 0 || (size_t)n >= sizeof(owner_text))
+    return -1;
+
+  return write_file_atomic(path, owner_text);
+}
+
 /* Create external command lock - ONLY called by CLI parent.
  * Returns: 0 on success, -1 if lock already held by a live process. */
 static int acquire_external_lock(const char *name) {
@@ -37,28 +205,24 @@ static int acquire_external_lock(const char *name) {
 
   /* Check if lock already exists */
   if (access(lock_path, F_OK) == 0) {
-    /* Lock exists - verify if holder is still alive */
-    char buf[32];
-    if (read_file(lock_path, buf, sizeof(buf)) > 0) {
-      pid_t holder = (pid_t)atoi(buf);
-      if (holder > 0 && holder != getpid() && kill(holder, 0) == 0) {
+    struct ds_external_lock_owner owner;
+    if (read_external_lock_owner(lock_path, &owner) == 0) {
+      if (owner.pid != getpid() && is_external_lock_owner_active(&owner)) {
         /* Lock holder is alive and NOT us - cannot acquire */
-        ds_warn("Cannot acquire lock: held by process %d", holder);
+        ds_warn("Cannot acquire lock: held by process %d", owner.pid);
         return -1;
       }
-      /* Stale lock detected */
-      if (holder > 0 && holder != getpid()) {
-        ds_log("Removing stale lock (holder PID %d is dead)", holder);
-      }
+      if (owner.pid != getpid())
+        ds_log("Removing stale lock (holder PID %d is dead or was reused)",
+               owner.pid);
+    } else {
+      ds_log("Removing malformed external lock for '%s'", name);
     }
     /* Remove stale lock */
     unlink(lock_path);
   }
 
-  /* Write our PID to lock file */
-  char pid_str[32];
-  snprintf(pid_str, sizeof(pid_str), "%d", getpid());
-  return write_file_atomic(lock_path, pid_str);
+  return write_external_lock_owner(lock_path);
 }
 
 /* Release external command lock - ONLY called by CLI parent.
@@ -69,15 +233,14 @@ static void release_external_lock(const char *name) {
     return;
 
   /* Verify we own the lock before removing */
-  char buf[32];
-  if (read_file(lock_path, buf, sizeof(buf)) > 0) {
-    pid_t holder = (pid_t)atoi(buf);
-    if (holder == getpid()) {
+  struct ds_external_lock_owner owner;
+  if (read_external_lock_owner(lock_path, &owner) == 0) {
+    if (is_external_lock_owner_current(&owner)) {
       unlink(lock_path);
-    } else if (holder > 0) {
+    } else {
       /* This should never happen but log it for debugging */
-      ds_warn("Attempted to release lock owned by PID %d (we are %d)", holder,
-              getpid());
+      ds_warn("Attempted to release lock owned by PID %d (we are %d)",
+              owner.pid, getpid());
     }
   }
 }
@@ -121,16 +284,16 @@ int is_external_lock_active(const char *name) {
   if (access(lock_path, F_OK) != 0)
     return 0; /* No lock */
 
-  /* Lock exists - verify holder is alive */
-  char buf[32];
-  if (read_file(lock_path, buf, sizeof(buf)) > 0) {
-    pid_t holder = (pid_t)atoi(buf);
-    if (holder > 0 && kill(holder, 0) == 0)
+  struct ds_external_lock_owner owner;
+  if (read_external_lock_owner(lock_path, &owner) == 0) {
+    if (is_external_lock_owner_active(&owner))
       return 1; /* Valid lock */
 
-    /* Stale lock detected */
-    write_monitor_debug_log(name, "Removing stale lock (holder PID %d is dead)",
-                            holder);
+    write_monitor_debug_log(
+        name, "Removing stale lock (holder PID %d is dead or was reused)",
+        owner.pid);
+  } else {
+    write_monitor_debug_log(name, "Removing malformed external lock");
   }
 
   /* Remove stale lock */
